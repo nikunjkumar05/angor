@@ -1,0 +1,65 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:Zafiro.UI;assembly=Zafiro.UI"
+             xmlns:common="clr-namespace:AngorApp.Model.Common;assembly=AngorApp.Model"
+             xmlns:dialogViews="clr-namespace:Zafiro.Avalonia.Dialogs.Views;assembly=Zafiro.Avalonia.Dialogs"
+             xmlns:shared="clr-namespace:AngorApp.UI.Shared"
+             x:Class="AngorApp.App"
+             RequestedThemeVariant="Default">
+    <Application.Resources>
+        <ResourceDictionary>
+
+            <ResourceDictionary.MergedDictionaries>
+                <MergeResourceInclude Source="/UI/Shared/Controls/Common/CopyButton.axaml" />
+                <MergeResourceInclude Source="UI/Shared/Controls/Header.axaml" />
+                <MergeResourceInclude Source="UI/Shared/Controls/NewCard.axaml" />
+                <MergeResourceInclude Source="UI/Shared/Resources/Icons.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <IconDataTemplate x:Key="IconDataTemplate" />
+
+            <DataTemplate x:Key="BigIcon" DataType="x:Object">
+                <ContentPresenter Content="{Binding}">
+                    <ContentPresenter.DataTemplates>
+                        <DataTemplate DataType="ui:Icon">
+                            <Viewbox Height="40" Width="40">
+                                <ContentControl ContentTemplate="{StaticResource IconDataTemplate}" Content="{Binding }" />
+                            </Viewbox>
+                        </DataTemplate>
+                    </ContentPresenter.DataTemplates>
+                </ContentPresenter>
+            </DataTemplate>
+
+            <DataTemplate x:Key="HugeIcon" DataType="x:Object">
+                <ContentPresenter Content="{Binding}">
+                    <ContentPresenter.DataTemplates>
+                        <DataTemplate DataType="ui:Icon">
+                            <Viewbox Height="80" Width="80">
+                                <ContentControl ContentTemplate="{StaticResource IconDataTemplate}" Content="{Binding }" />
+                            </Viewbox>
+                        </DataTemplate>
+                    </ContentPresenter.DataTemplates>
+                </ContentPresenter>
+            </DataTemplate>
+
+        </ResourceDictionary>
+    </Application.Resources>
+    <Application.Styles>
+        <StyleInclude Source="UI/Themes/V2/Theme.axaml" />
+    </Application.Styles>
+
+    <Application.DataTemplates>
+        <DataTemplate DataType="dialogViews:MessageDialogViewModel">
+            <TextBlock Classes="Size-M Center Wrap"
+                       VerticalAlignment="Center"
+                       MaxWidth="400"
+                       Text="{Binding Message}" />
+        </DataTemplate>
+        <DataTypeViewLocator />
+        <DataTemplateInclude Source="avares://Zafiro.Avalonia/DataTemplates.axaml" />
+        <DataTemplate DataType="common:ClipboardText">
+            <SelectableTextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding Text}" />
+        </DataTemplate>
+    </Application.DataTemplates>
+
+</Application>

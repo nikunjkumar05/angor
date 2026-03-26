@@ -1,0 +1,46 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:slim="clr-namespace:Zafiro.Avalonia.Controls.Wizards.Slim;assembly=Zafiro.Avalonia">
+
+    <Design.PreviewWith>
+        <WizardFooter Width="500" />
+    </Design.PreviewWith>
+    
+    <Style Selector="EnhancedButton.ReverseIcon ContentPresenter#IconPresenter">
+        <Setter Property="DockPanel.Dock" Value="Right" />
+    </Style>
+
+    <Style Selector="SlimWizardControl ScrollViewer">
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Styles.Resources>
+        <ControlTheme x:Key="{x:Type slim:WizardFooter}" TargetType="slim:WizardFooter">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid ColumnDefinitions="*, Auto, *">
+                        <EnhancedButton Content="Cancel"
+                                        Classes="White"
+                                        Grid.Column="0"
+                                        HorizontalAlignment="Left"
+                                        Command="{Binding $parent[slim:WizardFooter].Cancel}" />
+                        <ContentPresenter Grid.Column="1" Content="{Binding $parent[slim:WizardFooter].CurrentFooter}" HorizontalAlignment="Center" />
+                        <StackPanel Grid.Column="2"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    HorizontalAlignment="Right">
+                            <EnhancedButton Content="Back"
+                                            Classes="VisibleWhenEnabled Secondary"
+                                            Command="{Binding $parent[slim:WizardFooter].Wizard.Back}" />
+                            <EnhancedButton Content="{Binding $parent[slim:WizardFooter].Wizard.Next.Text, TargetNullValue='Next'}"
+                                            Classes="Primary"
+                                            Command="{Binding $parent[slim:WizardFooter].Wizard.Next}" />
+                        </StackPanel>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+
+    </Styles.Resources>
+
+</Styles>

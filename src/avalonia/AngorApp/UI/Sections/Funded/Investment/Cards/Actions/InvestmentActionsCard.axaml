@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:founder="clr-namespace:Angor.Sdk.Funding.Founder;assembly=Angor.Sdk"
+             xmlns:cards="clr-namespace:AngorApp.UI.Sections.Funded.Investment.Cards"
+             xmlns:model="clr-namespace:AngorApp.Model.Funded.Shared.Model;assembly=AngorApp.Model"
+             xmlns:model1="clr-namespace:AngorApp.Model.Funded.Investment.Model;assembly=AngorApp.Model"
+             xmlns:actions="clr-namespace:AngorApp.UI.Sections.Funded.Investment.Cards.Actions"
+             xmlns:controls="clr-namespace:AngorApp.UI.Shared.Controls"
+             mc:Ignorable="d"
+             d:DesignWidth="400"
+             x:Class="AngorApp.UI.Sections.Funded.Investment.Cards.Actions.InvestmentActionsCard"
+             ClipToBounds="False"
+             x:DataType="model:IFunded">
+    
+    <Design.DataContext>
+        <model1:InvestmentFundedSample />
+    </Design.DataContext>
+
+    <StackPanel Classes="Gap-XL">
+        <actions:InvestedCard ClipToBounds="False"
+            IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.Invested}}" />
+        <actions:PendingFounderSignaturesCard ClipToBounds="False"
+            IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.PendingFounderSignatures}}" />
+        <actions:FounderSignaturesReceivedCard ClipToBounds="False"
+            IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.FounderSignaturesReceived}}" />
+        <actions:InvalidCard ClipToBounds="False"
+            IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.Invalid}}" />
+    </StackPanel>
+</UserControl>

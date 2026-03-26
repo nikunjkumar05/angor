@@ -1,0 +1,300 @@
+﻿@using Angor.Client.Services
+@using Angor.Client.Storage
+@using System.Reflection
+@using Angor.Shared
+@using Angor.Shared.Networks
+@using Angor.Shared.Services
+@using Blockcore.Networks
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject IJSRuntime Js;
+@inject INetworkConfiguration _networkConfiguration
+@inject INetworkService _networkService
+@inject NavigationManager _navManager
+@inject NavMenuState NavMenuState;
+@inject INetworkStorage _networkStorage
+@inject IClientStorage storage;
+
+<div class="@($"{(isDarkTheme ? "dark" : "")}") sidenav-show @(isSidebarCollapsed ? "sidenav-hidden" : "")">
+    <NavMenu @bind-IsCollapsed="isSidebarCollapsed" IsDarkTheme="isDarkTheme"/>
+    <main class="main-content">
+        <!-- Navbar -->
+        <nav class="navbar navbar-main navbar-expand-lg px-0 border-radius-xl position-sticky mt-2 z-index-sticky left-auto ms-2 me-2" id="navbarBlur">
+            <div class="container-fluid">
+                <nav class="d-flex align-items-center">
+                    <!-- Logo for mobile view -->
+                    <div class="mobile-logo d-lg-none me-2">
+                        <a href="/" class="d-flex align-items-center text-decoration-none">
+                            <Icon IconName="angor-logo" />
+                            <span class="angor-label ms-2">Angor</span>
+                        </a>
+                    </div>
+                    <div class="text-sm">
+                        <div class="d-flex align-items-center">
+                            <h6 class="font-weight-bolder m-0 me-2" title="@networkText">
+                                <Icon IconName="network" class="me-2 d-none d-lg-inline" />
+                                <span>@(GetBaseNetworkName())</span>
+                            </h6>
+                            @if (IsTestnet())
+                            {
+                                <span class="badge bg-info text-white px-2 py-1 me-1" style="font-size: 0.75rem;">
+                                    Testnet
+                                </span>
+                            }
+                            @if (IsDebugMode())
+                            {
+                                <span class="badge bg-warning text-dark px-2 py-1" style="font-size: 0.75rem;">
+                                    Debug
+                                </span>
+                            }
+                        </div>
+                    </div>
+                </nav>
+                <div class="navbar-collapse">
+                    <ul class="navbar-nav user-select-none">
+                        <li class="nav-item d-none" id="updateButton">
+                            <span role="button" @onclick="UpdateApp" data-tooltip="Update application">
+                                <Icon IconName="update" Height="24" Width="24" />
+                            </span>
+                        </li>
+                        <li class="nav-item" id="dark" @onclick="ToggleTheme">
+                            <span role="button" id="theme-icon" data-tooltip="Switch theme">
+                                <Icon IconName=@themeIcon Height="24" Width="24" />
+                            </span>
+                        </li>
+                        <li class="nav-item d-none" id="installButton">
+                            <span role="button" @onclick="InstallApp" data-tooltip="Install application">
+                                <Icon IconName="install" Height="24" Width="24" />
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+        <!-- End Navbar -->
+
+        <div class="content-wrapper">
+            <div class="container-fluid py-4 page-content @(isSidebarCollapsed ? "sidebar-collapsed" : "")">
+                @Body
+            </div>
+
+            <footer class="footer py-2 px-0 mx-2">
+                <div class="row">
+                    <div class="nav nav-footer justify-content-center">
+                        <div class="card card-body border-radius-lg d-flex align-items-center flex-row p-3 ms-0 me-0">
+                            <h6 class="mb-0">Version: @_softwareVersion</h6>
+                            <a href="https://github.com/block-core/angor" class="ms-auto text-dark cursor-pointer" target="_blank" rel="noopener noreferrer">
+                                <Icon IconName="github" />
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </main>
+</div>
+
+@code {
+    private string _softwareVersion = "0.0.0";
+    private bool isDarkTheme = false;
+    private bool isLockMenu = false;
+    private string themeIcon = "light_mode";
+    private string sidenavClass = "sidenav-hidden";
+    private bool isSidebarCollapsed;
+
+    private string networkText = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {     
+        InitializeNetworkConfiguration();
+
+        InitializeAppVersion();
+        await LoadThemeFromStorage();
+        await UpdateThemeIcon(isDarkTheme);
+        NavMenuState.OnChange += NavMenuStateOnOnChange;
+
+        _networkService.AddSettingsIfNotExist();
+        await _networkService.CheckServices(true);
+    }
+
+    private void InitializeAppVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        var informationalVersion = assembly?
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion;
+
+        if (!string.IsNullOrEmpty(informationalVersion))
+            _softwareVersion = informationalVersion;
+        else
+        {
+            var version = assembly?.GetName().Version;
+            if (version != null)
+                _softwareVersion = version.ToString();
+        }
+    }
+
+    private void InitializeNetworkConfiguration()
+    {
+        string networkName = _networkStorage.GetNetwork();
+
+        if (networkName?.ToLower() == "testnet")
+        {
+            // we will probably not support bitcoins classic testnet for a while
+            // so any testnet is assumed to be angornet, in an attempt to support
+            // backwards compatibility we just set the network to angornet
+
+            var oldName = networkName;
+            networkName = "Angornet";
+
+            _networkStorage.SetNetwork(networkName);
+            var accountInfo = storage.GetAccountInfo(oldName);
+            storage.SetAccountInfo(networkName, accountInfo);
+            storage.DeleteAccountInfo(oldName);
+        }
+
+        // Handle LiquidTestnet as well for backwards compatibility
+        if (networkName?.ToLower() == "liquidtestnet")
+        {
+            var oldName = networkName;
+            networkName = "Liquid"; // Defaulting to Liquid mainnet for now
+
+            _networkStorage.SetNetwork(networkName);
+            var accountInfo = storage.GetAccountInfo(oldName);
+            storage.SetAccountInfo(networkName, accountInfo);
+            storage.DeleteAccountInfo(oldName);
+        }
+
+        _networkService.CheckAndSetNetwork(_navManager.Uri.ToLower());
+
+        SetNetworkText();
+    }
+
+    private async Task UpdateApp()
+    {
+        await Js.InvokeVoidAsync("location.reload");
+    }
+
+    private void SetNetworkText()
+    {
+        var network = _networkConfiguration.GetNetwork();
+        var debugMode = storage?.GetDebugMode() ?? false;
+        
+        networkText = network.Name;
+
+        if (network.Name == "Angornet")
+        {
+            networkText += " (testnet)";
+        }
+
+        if (debugMode)
+        {
+            networkText += " [Debug]";
+        }
+    }
+
+    private string GetBaseNetworkName()
+    {
+        var network = _networkConfiguration.GetNetwork();
+        return network.Name == "Angornet" ? "Angornet" : network.Name;
+    }
+
+    private bool IsTestnet()
+    {
+        var network = _networkConfiguration.GetNetwork();
+        return network.NetworkType != NetworkType.Mainnet;
+    }
+
+    private bool IsDebugMode()
+    {
+        return storage?.GetDebugMode() ?? false;
+    }
+
+    private void NavMenuStateOnOnChange()
+    {
+        SetNetworkText();
+        StateHasChanged();
+    }
+
+    private async Task LoadThemeFromStorage()
+    {
+        var storedTheme = await Js.InvokeAsync<string>("localStorage.getItem", "theme");
+        if (!string.IsNullOrEmpty(storedTheme))
+        {
+            isDarkTheme = storedTheme == "dark";
+            await UpdateThemeIcon(isDarkTheme);
+            if (isDarkTheme)
+            {
+                await Js.InvokeVoidAsync("angor.addDarkBackground");
+            }
+            else
+            {
+                await Js.InvokeVoidAsync("angor.addLightBackground");
+            }
+        }
+    }
+
+    private async Task InstallApp()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("angor.installApp");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error calling installApp: {ex.Message}");
+            // Log the error or provide a user-friendly error message
+        }
+    }
+
+    private async void ToggleTheme()
+    {
+        isDarkTheme = !isDarkTheme;
+        await UpdateThemeIcon(isDarkTheme);
+        await SaveThemeToStorage(isDarkTheme);
+    }
+
+    private async Task UpdateThemeIcon(bool isDark)
+    {
+        themeIcon = isDark ? "light_mode" : "dark_mode";
+        if (isDark)
+        {
+            await Js.InvokeVoidAsync("angor.addDarkBackground");
+        }
+        else
+        {
+            await Js.InvokeVoidAsync("angor.addLightBackground");
+        }
+    }
+
+    private async Task SaveThemeToStorage(bool isDark)
+    {
+        await Js.InvokeVoidAsync("localStorage.setItem", "theme", isDark ? "dark" : "light");
+    }
+
+    private void ToggleSidenavMobile()
+    {
+        isSidebarCollapsed = !isSidebarCollapsed;
+    }
+
+    private void ToggleSidenav()
+    {
+        isSidebarCollapsed = !isSidebarCollapsed;
+    }
+
+    private void ToggleLockMenu()
+    {
+        isLockMenu = !isLockMenu;
+
+        if (isLockMenu)
+        {
+            sidenavClass = "";
+        }
+    }
+
+    public void Dispose()
+    {
+        NavMenuState.OnChange -= NavMenuStateOnOnChange;
+    }
+     
+}

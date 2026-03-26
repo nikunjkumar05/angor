@@ -1,0 +1,1350 @@
+﻿@page "/view/{ProjectId}"
+@using System.Text.RegularExpressions
+@using Angor.Client.Models
+@using Angor.Client.Storage
+@using Angor.Shared
+@using Angor.Shared.Models
+@using Angor.Shared.Services
+@using Angor.Shared.Utilities
+@using Blockcore.NBitcoin
+@using Blockcore.Networks
+@using NBitcoin.DataEncoders
+@using Nostr.Client.Messages
+
+@inject INetworkService _NetworkService
+@inject IDerivationOperations _derivationOperations
+@inject IClientStorage storage;
+@inject ICacheStorage SessionStorage;
+@inject INetworkConfiguration _NetworkConfiguration
+@inject IClipboardService _clipboardService
+@inject IAngorIndexerService _IndexerService
+@inject IRelayService _RelayService
+@inject ISerializer serializer
+@inject IJSRuntime Js;
+@inject ILogger<Browse> Logger;
+@inject IHtmlStripperService HtmlStripperService;
+@inject IApplicationLogicService applicationLogicService;
+@inject NostrConversionHelper NostrHelper
+@inject NavMenuState NavMenuState
+
+
+@inherits BaseComponent
+<NotificationComponent @ref="notificationComponent" />
+<PasswordComponent @ref="passwordComponent" />
+
+<div class="row">
+
+    @if (project?.ProjectInfo == null)
+    {
+        @if (findInProgress)
+        {
+            <div class="d-flex justify-content-center">
+                <div class="loader"></div>
+            </div>
+        }
+        else
+        {
+            @if (!string.IsNullOrEmpty(error))
+            {
+                <div class="row mt-4">
+                    <div class="info-alert my-4 ">
+                        <Icon IconName="info" Class="alert-icon" Width="24" Height="24" />
+                        <p class="text-warning">
+                            @error
+                        </p>
+                    </div>
+                </div>
+            }
+        }
+    }
+    else
+    {
+        <!-- Project Details Section -->
+        @if (project.ProjectInfo.NostrPubKey != null)
+        {
+            <div class="card card-body p-0 profile-card animate-fade-in">
+                @{
+                    var metadata = project.Metadata;
+                }
+
+                <div class="card-header p-0 position-relative">
+                    <div class="banner-container-view">
+                        <img class="card-img-top-view animate-fade" loading="lazy" src="@(metadata?.Banner ?? "/assets/img/no-image.jpg")" alt="Banner Image" onerror="this.onerror=null; this.src='/assets/img/no-image.jpg';" />
+                    </div>
+                    <img class="profile-image-view rounded-circle animate-fade-in" loading="lazy" src="@(metadata?.Picture ?? "/assets/img/no-image.jpg")" alt="Profile Picture" onerror="this.onerror=null; this.src='/assets/img/no-image.jpg';" />
+                </div>
+
+                <div class="p-4 content-container animate-fade-up" style="margin-top: 60px;">
+                    <div class="d-flex align-items-center justify-content-between mb-4">
+                        <div class="d-flex align-items-center hover-effect">
+                            <span class="user-select-none animate-rotate">
+                                <i>
+                                    <Icon IconName="view" Height="32" Width="32" />
+                                </i>
+                            </span>
+                            <div class="h-100 ms-3">
+                                <h5 class="mb-0 font-weight-bolder project-title">
+                                    <a href="/view/@project.ProjectInfo.ProjectIdentifier">@metadata?.Name</a>
+                                </h5>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <p class="card-subtitle animate-fade-in-delayed">@((MarkupString)(metadata?.About ?? ""))</p>
+                </div>
+
+            </div>
+
+
+            <div class="card card-body mt-4 animate-fade-in">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h5 class="card-title d-flex align-items-center">
+                        <span class="user-select-none animate-rotate">
+                            <Icon IconName="statistics" Height="42" Width="42" />
+                        </span>
+                        <div class="h-100 ms-3">
+                            Project Details
+                        </div>
+                    </h5>
+                </div>
+
+                <div class="row g-4">
+                    <div class="col-md-12">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="explorer" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Explorer</h6>
+                            </div>
+                            <div class="d-flex align-items-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <a href="@projectExplorerLink" target="_blank" class="d-flex align-items-center" rel="noopener noreferrer">
+                                        <span>View the transaction</span>
+                                        <Icon IconName="external-link" Height="16" Width="16" Class="ms-2" />
+                                    </a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="view" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Project Identifier</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="Unique identifier for this project">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center mt-2">
+                                <p class="text-break mb-0 text-truncate flex-grow-1" title="@project.ProjectInfo.ProjectIdentifier">
+                                    <b>@project.ProjectInfo.ProjectIdentifier</b>
+                                </p>
+                                <button class="btn btn-sm btn-icon ms-2" @onclick="() => CopyToClipboard(project.ProjectInfo.ProjectIdentifier)">
+                                    <Icon IconName="copy" Height="16" Width="16" />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="key" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Founder Key</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="Public key of the project founder">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center mt-2">
+                                <p class="text-break mb-0 text-truncate flex-grow-1" title="@project.ProjectInfo.FounderKey">
+                                    <b>@project.ProjectInfo.FounderKey</b>
+                                </p>
+                                <button class="btn btn-sm btn-icon ms-2" @onclick="() => CopyToClipboard(project.ProjectInfo.FounderKey)">
+                                    <Icon IconName="copy" Height="16" Width="16" />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-12">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="balance" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Target Amount</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="The minimum amount of @network.CoinTicker this project is trying to raise.">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column justify-content-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <b>@project.ProjectInfo.TargetAmount.ToUnitBtc() @network.CoinTicker</b>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="date" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Investment Start Date</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="This is when the investment period begins">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+
+                            <div class="d-flex flex-column justify-content-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <b>@project.ProjectInfo.StartDate.FormatDate()</b>
+                                </p>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="date" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Investment End Date</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="This is when the investment period ends">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column justify-content-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <b>
+                                        @{
+                                            var endDate = project?.ProjectInfo?.EndDate;
+                                            if (endDate == null || endDate == DateTime.MinValue)
+                                            {
+                                                var firstStageDate = project?.ProjectInfo?.Stages?.FirstOrDefault()?.ReleaseDate;
+                                                if (firstStageDate != null && firstStageDate != DateTime.MinValue)
+                                                {
+                                                    @firstStageDate.Value.FormatDate()
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">No date available</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                @endDate.Value.FormatDate()
+                                            }
+                                        }
+                                    </b>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="calendar" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Penalty Duration</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="Number of days to lock funds for departing investors who wish to withdraw early.">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column justify-content-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <b>@project.ProjectInfo.PenaltyDays days</b>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                            <div class="d-flex align-items-center mb-2">
+                                <Icon IconName="date" Height="24" Width="24" Class="me-3" />
+                                <h6 class="mb-0">Project Expiry Date</h6>
+                                <div class="info-icon-container ms-auto"
+                                     data-tooltip="Emergency date when all remaining funds can be released in case of project abandonment.">
+                                    <Icon IconName="info" Height="16" Width="16" Class="text-muted info-icon" />
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column justify-content-center">
+                                <p class="text-break mb-0 mt-2">
+                                    <b>@project.ProjectInfo.ExpiryDate.FormatDate()</b>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <h5 class="card-title d-flex align-items-center mb-4">
+                        <span class="user-select-none animate-rotate">
+                            <Icon IconName="statistics" Height="42" Width="42" />
+                        </span>
+                        <div class="h-100 ms-3">
+                            Project Statistics
+                        </div>
+                    </h5>
+
+                    @if (projectStats.Loading)
+                    {
+                        <div class="d-flex justify-content-center">
+                            <div class="loader"></div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-4">
+                            <div class="col-12 col-sm-6 col-lg-4">
+                                <div class="stat-card p-3 rounded-3 border hover-effect h-100 position-relative overflow-hidden">
+                                    @if (projectStats.TotalRaised > 0 && project.ProjectInfo.TargetAmount > 0)
+                                    {
+                                        var progressPercentage = (int)((double)projectStats.TotalRaised / project.ProjectInfo.TargetAmount * 100);
+                                        <div class="progress-background" style="position: absolute; bottom: 0; left: 0; width: @(progressPercentage)%; height: 100%; background-color: rgba(40, 167, 69, 0.15); z-index: 0;"></div>
+                                    }
+                                    <div class="d-flex justify-content-between h-100 position-relative" style="z-index: 1;">
+                                        <div>
+                                            <h6 class="text-muted">Total Raised</h6>
+                                            <h4 class="mb-0">
+                                                @Money.Satoshis(projectStats.TotalRaised).ToUnit(MoneyUnit.BTC)
+                                                <small class="currency">@network.CoinTicker</small>
+                                            </h4>
+                                            @if (projectStats.TotalRaised > 0 && project.ProjectInfo.TargetAmount > 0)
+                                            {
+                                                <span class="badge bg-success mt-2">
+                                                    @((int)((double)projectStats.TotalRaised / project.ProjectInfo.TargetAmount * 100))%
+                                                </span>
+                                            }
+                                        </div>
+                                        <div class="stat-icon">
+                                            <Icon IconName="calculator" Height="32" Width="32" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12 col-sm-6 col-lg-4">
+
+                                <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                                    <div class="d-flex justify-content-between h-100">
+                                        <a href="@investorExplorerLink" target="_blank" rel="noopener noreferrer">
+                                            <h6 class="text-muted">Total Investors</h6>
+                                            <h4 class="mb-0">@projectStats.TotalInvestors</h4>
+                                        </a>
+                                        <div class="stat-icon">
+                                            <Icon IconName="users" Height="32" Width="32" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div class="col-12 col-sm-6 col-lg-4">
+                                <div class="stat-card p-3 rounded-3 border hover-effect h-100">
+                                    <div class="d-flex justify-content-between h-100">
+                                        <div>
+                                            <h6 class="text-muted">Investment Status</h6>
+                                            @{
+                                                var currentDate = DateTime.UtcNow;
+                                                var startDate = project.ProjectInfo.StartDate;
+                                                var investmentEndDate = project.ProjectInfo.EndDate;
+                                            }
+                                            @if (currentDate < startDate)
+                                            {
+                                                var daysUntilStart = (startDate - currentDate).Days;
+                                                <h4 class="mb-0">@daysUntilStart days until start</h4>
+                                            }
+                                            else if (currentDate >= startDate && currentDate <= investmentEndDate)
+                                            {
+                                                var daysLeft = (investmentEndDate - currentDate).Days;
+                                                <h4 class="mb-0">@daysLeft Days remaining</h4>
+                                            }
+                                            else
+                                            {
+                                                <h4 class="mb-0">Funding Closed</h4>
+                                            }
+                                        </div>
+                                        <div class="stat-icon">
+                                            <Icon IconName="calendar" Height="32" Width="32" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+        }
+
+
+        <!-- Stages Section -->
+
+        <div class="card card-body mt-4">
+            <div class="d-flex align-items-center">
+                <span class="user-select-none animate-rotate">
+                    <i class="me-2">
+                        <Icon IconName="stages" />
+                    </i>
+                </span>
+                <div class="h-100 ms-3">
+                    <h5 class="mb-0 font-weight-bolder">
+                        Stages
+                    </h5>
+                </div>
+            </div>
+            <div class="table-responsive form-control mt-4">
+                <table class="table align-items-center mb-0">
+                    <thead>
+                        <tr>
+                            <th class="text-uppercase text-xxs font-weight-bolder opacity-7">Stage</th>
+                            <th class="text-uppercase text-xxs font-weight-bolder opacity-7">Stage %</th>
+                            <th class="text-uppercase text-xxs font-weight-bolder opacity-7">Release Date</th>
+                            <th class="text-uppercase text-xxs font-weight-bolder opacity-7">Days Until Stage</th>
+                            <th class="text-uppercase text-xxs font-weight-bolder opacity-7">Amount Per Stage</th>
+                            <!-- Other headers -->
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var index = 0; index < project.ProjectInfo.Stages.Count; index++)
+                        {
+                            var stage = project.ProjectInfo.Stages[index];
+                            var daysUntilStage = (stage.ReleaseDate.Date - currentDate.Date).Days;
+
+                            var amountInStage = Money.Satoshis(projectStats.TotalRaised).ToUnit(MoneyUnit.BTC) * stage.AmountToRelease / 100;
+                            <tr>
+                                <td>@(index + 1)</td>
+                                <td>@stage.AmountToRelease.ToString("F2") %</td>
+                                <td>@stage.ReleaseDate.FormatDate()</td>
+                                <td>
+                                    @if (daysUntilStage == 0)
+                                    {
+                                        <span>Just Released</span>
+                                    }
+                                    else if (daysUntilStage < 0)
+                                    {
+                                        <span>Released</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@daysUntilStage days</span>
+                                    }
+                                </td>
+                                <td>@amountInStage @network.CoinTicker</td>
+                                <!-- Other stage details -->
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+        <!-- Seeders Section -->
+        @*        <div class="card mb-3">
+    <div class="card-header">
+    <h4>Selected Seeders</h4>
+    </div>
+    <div class="card-body">
+    @if (SelectedSeeders.Any())
+    {
+    <!-- Seeders table -->
+    }
+    else
+    {
+    <p><i class="bi bi-exclamation-triangle-fill"></i> No seeders yet.</p>
+    }
+    </div>
+    </div>*@
+
+        <!-- Actions Section -->
+
+        <div class="card card-body mt-4">
+            @if (founder)
+            {
+                <div class="text-center animate-fade-in">
+                    <i class="me-2">
+                        <Icon IconName="verified-check" Height="100" Width="100" Class="action-icon" />
+                    </i>
+                    <h3 class="mt-4 text-success">Project Owner Dashboard</h3>
+                    <p class="action-text">Manage your project funds and approve transactions</p>
+                    <div class="action-buttons d-flex justify-content-center item-center mt-4">
+
+                        <a href=@($"/spend/{project.ProjectInfo.ProjectIdentifier}") class="btn btn-border-success text-white animate-scale">
+                            <i class="me-2">
+                                <Icon IconName="wallet" />
+                            </i>
+                            Manage funds
+                        </a>
+                        <div class="position-relative d-inline-block mx-2">
+                            <a href="@($"/signatures/{project.ProjectInfo.ProjectIdentifier}")" class="btn btn-border-warning animate-scale">
+                                <i class="me-2">
+                                    <Icon IconName="signature" />
+                                </i>
+                                Approve investments
+                            </a>
+                            @if (hasPendingMessages)
+                            {
+                                <span class="position-absolute top-0 start-100 translate-middle rounded-circle btn-border-warning" style="width: 16px; height: 16px; z-index: 1; background-color: #7e7537;">
+                                    <span class="visually-hidden">New activity</span>
+                                </span>
+                            }
+                        </div>
+
+                        <a href=@($"/unfunded/{project.ProjectInfo.ProjectIdentifier}")
+                           class="btn btn-border-danger animate-scale @(CanReleaseUnfundedProject() ? "" : "disabled")">
+                            <i class="me-2">
+                                @if (CanReleaseUnfundedProject())
+                                {
+                                    <Icon IconName="unlock" />
+                                }
+                                else
+                                {
+                                    <Icon IconName="lock" />
+                                }
+                            </i>
+                            Release funds back to investors
+                        </a>
+                    </div>
+
+
+                </div>
+
+            }
+            else if (invested)
+            {
+                <div class="action-card investor-card animate-fade-in">
+                    <i class="me-2">
+                        <Icon IconName="cup" Height="100" Width="100" Class="action-icon" />
+                    </i>
+                    <h3 class="mt-4">Investment Active</h3>
+                    <p class="action-text">
+                        You are part of this project's success!
+                        <a href="@myProjectExplorerLink" target="_blank" class="d-block mt-2">View Transaction Details</a>
+                    </p>
+                    <div class="d-flex justify-content-center item-center mt-4">
+
+                        <button class="btn btn-border animate-scale" @onclick="RecoverFunds">
+                            <Icon IconName="recover" Class="me-2" />
+                            Manage Investment
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="action-card prospect-card animate-fade-in">
+
+                    <Icon IconName="shield-star" Height="100" Width="100" Class="action-icon me-2" />
+
+                    <h3 class="mt-4">Investment Opportunity</h3>
+                    <p class="action-text">
+                        Join this project and be part of its journey to success
+                    </p>
+
+                    @{
+                        var canInvest = applicationLogicService.IsInvestmentWindowOpen(project?.ProjectInfo);
+                    }
+                    <div class="d-flex justify-content-center item-center mt-4">
+                        <button class="btn btn-border-success animate-scale"
+                                data-cy="INVEST_BUTTON"
+                                @onclick="InvestInProject"
+                                disabled="@(!canInvest)">
+
+                            <Icon IconName="shield-star" Class="me-2" />
+
+                            @if (!canInvest)
+                            {
+                                <span>Investment Period Closed</span>
+                            }
+                            else
+                            {
+                                <span>Invest Now</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+
+
+        <!-- Relays Section -->
+        <div class="card card-body mt-4">
+            <div class="d-flex align-items-center">
+                <span class="user-select-none animate-rotate">
+                    <i class="me-2">
+                        <Icon IconName="relay" />
+                    </i>
+                </span>
+                <div class="h-100 ms-3">
+                    <h5 class="mb-0 font-weight-bolder">
+                        Nostr
+                    </h5>
+                </div>
+            </div>
+            @if (project.ProjectInfo.NostrPubKey != null)
+            {
+                <div class="mb-4 mt-4">
+
+                    @{
+                        var Npub = NostrHelper.ConvertHexToNpub(project.ProjectInfo.NostrPubKey);
+                    }
+                    <label for="NostrNpubPublicKey" class="form-label">Project NOSTR public key (npub)</label>
+
+                    <div class="input-group">
+                        <InputText id="NostrNpubPublicKey" @bind-Value="@Npub" class="form-control" placeholder="@Npub" readonly />
+                        <button @onclick="() => CopyToClipboard(Npub)" class="btn btn-border">
+                            <Icon IconName="copy" />
+                        </button>
+                        <button @onclick="OpenInHUBAsync" class="btn btn-border">
+                            <Icon IconName="link" />
+                        </button>
+                    </div>
+                    <br />
+                    <label for="NostrHexPublicKey" class="form-label">Project NOSTR public key (hex)</label>
+                    <div class="input-group">
+                        <InputText id="NostrHexPublicKey" @bind-Value="project.ProjectInfo.NostrPubKey" class="form-control" placeholder="@project.ProjectInfo.NostrPubKey" readonly />
+                        <button @onclick="() => CopyToClipboard(project.ProjectInfo.NostrPubKey)" class="btn btn-border">
+                            <Icon IconName="copy" />
+                        </button>
+                    </div>
+
+                    @if (invested)
+                    {
+                        var invPubKey = (project as InvestorProject).InvestorNPub;
+                        var invNpub = NostrHelper.ConvertHexToNpub(invPubKey);
+
+                        <label for="InvestorNostrNpubPublicKey" class="form-label mt-4">Investor NOSTR public key (npub)</label>
+
+                        <div class="input-group">
+                            <InputText id="InvestorNostrNpubPublicKey" @bind-Value="@invNpub" class="form-control" placeholder="@invNpub" readonly />
+                            <button @onclick="() => CopyToClipboard(invNpub)" class="btn btn-border">
+                                <Icon IconName="copy" />
+                            </button>
+                        </div>
+                        <br />
+                        <label for="InvestorNostrHexPublicKey" class="form-label">Investor NOSTR public key (hex)</label>
+                        <div class="input-group">
+                            <InputText id="InvestorNostrHexPublicKey" @bind-Value="@invPubKey" class="form-control" placeholder="@invPubKey" readonly />
+                            <button @onclick="() => CopyToClipboard(invPubKey)" class="btn btn-border">
+                                <Icon IconName="copy" />
+                            </button>
+                        </div>
+                    }
+
+                    <div class="action-buttons d-flex flex-wrap justify-content-center mt-4">
+                        <button @onclick="OpenInHUBAsync" class="btn btn-border-success animate-scale">
+                            <Icon IconName="link" Class="me-2" />
+                            Open in Angor Hub
+                        </button>
+
+                        @if (invested)
+                        {
+                            <button @onclick="OpenMessagingWithFounder" class="btn btn-border-success animate-scale">
+                                <Icon IconName="chat" Class="me-2" />
+                                Message Project Founder
+                            </button>
+                        }
+
+                        @if (founder)
+                        {
+                            <button @onclick="OpenInBrowseProfileAsync" class="btn btn-border-warning animate-scale">
+                                <Icon IconName="edit" Class="me-2" />
+                                Edit project profile
+                            </button>
+                        }
+
+                        @if (invested || founder)
+                        {
+                            <button @onclick="ShowNsecAsync" class="btn btn-border-danger animate-scale">
+                                <Icon IconName="shield" Class="me-2" />
+                                View Private Keys (nsec)
+                            </button>
+                        }
+                    </div>
+
+                    @if (isGeneratingNsec)
+                    {
+                        <div class="d-flex justify-content-center mt-4">
+                            <div class="loader"></div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="mt-2 text-danger">
+                            <span>@errorMessage</span>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(NostrHexSecKey) || !string.IsNullOrEmpty(NostrNsecSecKey))
+                    {
+                        <div class="card mt-4 p-3 border border-danger">
+                            <h6 class="mb-3 text-danger"><Icon IconName="shield" Class="me-2" />@(invested ? "Investor" : "Project") NOSTR Private Keys</h6>
+                            <label for="NostrNsecSecKey" class="form-label">NOSTR private key (nsec)</label>
+                            <div class="input-group mb-3">
+                                <input type="@(showPrivateKeys ? "text" : "password")" id="NostrNsecSecKey" value="@NostrNsecSecKey"
+                                       class="form-control nsec-box" readonly />
+                                <button @onclick="() => showPrivateKeys = !showPrivateKeys" class="btn btn-border">
+                                    <Icon IconName="@(showPrivateKeys ? "visibility-off" : "visibility")" />
+                                </button>
+                                <button @onclick="CopyNsecSecKeyToClipboardAsync" class="btn btn-border">
+                                    <Icon IconName="copy" />
+                                </button>
+                            </div>
+
+                            <label for="NostrHexSecKey" class="form-label">NOSTR private key (hex)</label>
+                            <div class="input-group">
+                                <input type="@(showPrivateKeys ? "text" : "password")" id="NostrHexSecKey" value="@NostrHexSecKey"
+                                       class="form-control nsec-box" readonly />
+                                <button @onclick="() => showPrivateKeys = !showPrivateKeys" class="btn btn-border">
+                                    <Icon IconName="@(showPrivateKeys ? "visibility-off" : "visibility")" />
+                                </button>
+                                <button @onclick="CopyHexSecKeyToClipboardAsync" class="btn btn-border">
+                                    <Icon IconName="copy" />
+                                </button>
+                            </div>
+                            <div class="text-center mt-3">
+                                <small class="text-danger">
+                                    <Icon IconName="warning" Class="me-1" /> Never share your private keys with anyone.
+                                </small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="mt-4">
+                <h6>Relays</h6>
+                @foreach (var relay in NostrClients)
+                {
+                    <a href="@relay" target="_blank" rel="noopener noreferrer">
+                        <div class="form-control mt-2 d-flex align-items-center">
+                            <i class="me-2">
+                                <Icon IconName="menu_open" Height="24" Width="24" />
+                            </i>
+                            <p class="card-text ms-2">@relay</p>
+                        </div>
+                    </a>
+                }
+
+                @if (founder)
+                {
+                    <div class="action-buttons d-flex justify-content-center item-center mt-4">
+                        <button type="button" @onclick="RepublishToNostr" class="btn btn-border btn-sm animate-scale mt-4" disabled="@isRepublishing">
+                            @if (isRepublishing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>Republishing...</span>
+                            }
+                            else
+                            {
+                                <Icon IconName="refresh" Class="me-2" />
+                                <span>Republish to Nostr Relays</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (showMessageModal && invested)
+{
+    <MessageComponent OtherUserPubkeyHex="@project.ProjectInfo.NostrPubKey"
+                      CurrentUserPrvKeyHex="@NostrHexSecKey"
+                      MessageTitle="Founder"
+                      OnClose="@OnMessageModalClose"
+                      OnNsecRequest="@ShowNsecAsync"
+                      OnNotification="@((message) => notificationComponent.ShowNotificationMessage(message, 2))" />
+}
+
+@code {
+    [Parameter] public string ProjectId { get; set; }
+
+    private Project? project;
+
+    private bool sendConfirmModal;
+
+    string myProjectExplorerLink;
+    string projectExplorerLink;
+    string investorExplorerLink;
+
+    private string NostrNsecSecKey { get; set; } = string.Empty;
+    private string NostrHexSecKey { get; set; } = string.Empty;
+
+    private bool isGeneratingNsec;
+    private string errorMessage = string.Empty;
+    private bool isRepublishing = false;
+    private bool hasPendingMessages = false;
+
+    private string error;
+
+    private List<(string Hash, int Amount)> SelectedSeeders = new List<(string hash, int amount)>
+    {
+        (new uint256().ToString(), 10),
+        (new uint256().ToString(), 20)
+    };
+
+    public class ProjectStats
+    {
+        public bool Loading { get; set; }
+        public long TotalRaised { get; set; }
+        public int TotalInvestors { get; set; }
+        public int TotalSeeders { get; set; }
+        public int TimeLeft { get; set; }
+        public int FundingProgressPercent { get; set; }
+    }
+
+    readonly ProjectStats projectStats = new()
+    {
+        Loading = true,
+        TimeLeft = 0,
+        TotalInvestors = 0,
+        TotalRaised = 0,
+        TotalSeeders = 0,
+        FundingProgressPercent = 0
+    };
+
+    bool founder;
+    bool invested;
+    bool findInProgress;
+    readonly DateTime currentDate = DateTime.UtcNow;
+
+    private List<string> NostrClients = new();
+
+    private bool showPrivateKeys = false;
+    private bool showMessageModal = false;
+    private string currentInvestorHexPub = "";
+    private string currentInvestorNpub = "";
+    private string founderNpub = ""; // Add this variable
+    private string npubValue = ""; // Add this variable
+
+    protected override async Task OnInitializedAsync()
+    {
+        projectStats.Loading = true;
+        findInProgress = false;
+        error = string.Empty;
+
+        try
+        {
+            // Initialize with settings relays as fallback
+            NostrClients = storage.GetSettingsInfo().Relays.Select(_ => _.Url.ToString()).ToList();
+
+            project = storage.GetFounderProjects().FirstOrDefault(p => p.ProjectInfo.ProjectIdentifier == ProjectId);
+            if (project != null)
+            {
+                founder = true;
+                NavMenuState.SetActivePage("founder");
+                
+                // Fetch relays from the user's Nostr account
+                FetchRelaysFromNostrAccount(project.ProjectInfo.NostrPubKey);
+                
+                if (project is FounderProject founderProject)
+                {
+                    await _RelayService.LookupSignaturesDirectMessagesForPubKeyAsync(founderProject.ProjectInfo.NostrPubKey, founderProject.LastRequestForSignaturesTime?.AddSeconds(1), 1,
+                        _ =>
+                        {
+                            if (hasPendingMessages)
+                                return;
+
+                            hasPendingMessages = true;
+                            InvokeAsync(StateHasChanged);
+                        });
+                }
+                projectStats.Loading = false;
+                SetProjectLinksAndRefreshBalance();
+                RefreshProjectProfile();
+                return;
+            }
+
+            NavMenuState.SetActivePage("browse");
+
+            project = storage.GetInvestmentProjects().FirstOrDefault(p => p.ProjectInfo.ProjectIdentifier == ProjectId);
+            if (project is InvestorProject investorProject)
+            {
+                invested = investorProject.InvestedInProject();
+
+                // Fetch relays from the user's Nostr account
+                FetchRelaysFromNostrAccount(project.ProjectInfo.NostrPubKey);
+
+                myProjectExplorerLink = _NetworkService.GetPrimaryExplorer().Url + $"/tx/{investorProject.TransactionId}";
+                projectStats.Loading = false;
+                SetProjectLinksAndRefreshBalance();
+                RefreshProjectProfile();
+                return;
+            }
+
+            project = SessionStorage.GetProjectById(ProjectId);
+            if (project != null)
+            {
+                // Fetch relays from the user's Nostr account
+                FetchRelaysFromNostrAccount(project.ProjectInfo.NostrPubKey);
+
+                projectStats.Loading = false;
+                SetProjectLinksAndRefreshBalance();
+                RefreshProjectProfile();
+                StateHasChanged();
+                return;
+            }
+
+            findInProgress = true;
+            var projectIndexerData = await _IndexerService.GetProjectByIdAsync(ProjectId);
+
+            if (projectIndexerData != null)
+            {
+                project = new Project { CreationTransactionId = projectIndexerData.TrxId };
+
+                _RelayService.LookupProjectsInfoByEventIds<ProjectInfo>(projectInfo =>
+                            {
+                                if (projectInfo is null)
+                                {
+                                    throw new Exception("The project info must be in the application specific data event");
+                                }
+
+                                if (project is { ProjectInfo: null }) { project.ProjectInfo = projectInfo; }
+                            },
+                            () =>
+                            {
+                                _RelayService.LookupNostrProfileForNPub(
+                                    (projectNpub, metadata) =>
+                                    {
+                                        if (project is { Metadata: null }) { project.Metadata = metadata; }
+                                    },
+                                    () =>
+                                    {
+                                        findInProgress = false;
+                                        if (project?.ProjectInfo != null)
+                                        {
+                                            // Fetch relays from the user's Nostr account
+                                            FetchRelaysFromNostrAccount(project.ProjectInfo.NostrPubKey);
+
+                                            if (!SessionStorage.IsProjectInStorageById(project.ProjectInfo.ProjectIdentifier))
+                                            {
+                                                SessionStorage.StoreProject(project);
+                                            }
+
+                                        }
+                                        else
+                                        {
+                                            // Handle case where project info is not available
+                                            error = "Project not found...";
+                                        }
+                                        StateHasChanged();
+                                    },
+                                    project.ProjectInfo.NostrPubKey);
+
+                                SetProjectLinksAndRefreshBalance();
+
+                            }, projectIndexerData.NostrEventId);
+            }
+            else
+            {
+                findInProgress = false;
+                error = "Project not found...";
+                StateHasChanged();
+            }
+        }
+
+
+        catch (Exception ex)
+        {
+            error = $"An error occurred: {ex.Message}";
+            projectStats.Loading = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+
+        // Update navigation state when parameters change
+        if (founder)
+        {
+            NavMenuState.SetActivePage("founder");
+        }
+        else
+        {
+            NavMenuState.SetActivePage("browse");
+        }
+    }
+
+    private async Task SetProjectLinksAndRefreshBalance()
+    {
+        if (!string.IsNullOrEmpty(project?.CreationTransactionId))
+        {
+            projectExplorerLink = _NetworkService.GetPrimaryExplorer().Url + $"/tx/{project.CreationTransactionId}";
+            investorExplorerLink = _NetworkService.GetPrimaryExplorer().Url + $"/angor/projects/{project.ProjectInfo.ProjectIdentifier}";
+        }
+        else
+        {
+            error = "Project created; awaiting confirmation. Check back shortly.";
+        }
+
+        await RefreshBalance();
+        StateHasChanged();
+    }
+
+    private async Task RefreshBalance()
+    {
+        try
+        {
+            projectStats.Loading = true;
+
+            if (project?.ProjectInfo != null)
+            {
+                var data = await _IndexerService.GetProjectStatsAsync(project.ProjectInfo.ProjectIdentifier);
+
+                if (data.stats != null)
+                {
+                    projectStats.TotalInvestors = (int)data.stats.InvestorCount;
+                    projectStats.TotalRaised = data.stats.AmountInvested;
+
+                    // Calculate time left based on the project start and expiry dates
+                    if (DateTime.UtcNow < project.ProjectInfo.StartDate)
+                    {
+                        // Project has not started yet, so time left is until the start date
+                        projectStats.TimeLeft = (project.ProjectInfo.StartDate - DateTime.UtcNow).Days;
+                    }
+                    else
+                    {
+                        // Project has expired
+                        projectStats.TimeLeft = 0; // Ensure no negative time left
+                    }
+
+                    if (project.ProjectInfo.TargetAmount > 0)
+                    {
+                        // Calculate funding progress as a percentage of the target amount
+                        projectStats.FundingProgressPercent = (int)(projectStats.TotalRaised * 100 / project.ProjectInfo.TargetAmount);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            notificationComponent.ShowErrorMessage(ex.Message, ex);
+        }
+        finally
+        {
+            projectStats.Loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RefreshProjectProfile()
+    {
+        if (project != null)
+        {
+            bool saved = false;
+            _RelayService.LookupNostrProfileForNPub(
+                (projectNpub, metadata) =>
+                {
+                    if (!saved)
+                    {
+                        saved = true;
+                        project.Metadata = metadata;
+
+                        if (project is FounderProject founderProject)
+                        {
+                            storage.UpdateFounderProject(founderProject);
+                        }
+
+                        if (project is InvestorProject investorProject)
+                        {
+                            storage.UpdateInvestmentProject(investorProject);
+                        }
+
+                        SessionStorage.StoreProject(project);
+                    }
+                },
+                StateHasChanged,
+                project.ProjectInfo.NostrPubKey);
+        }
+    }
+
+    private void FetchRelaysFromNostrAccount(string nostrPubKey)
+    {
+        if (string.IsNullOrEmpty(nostrPubKey))
+            return;
+
+        _RelayService.LookupRelayListForNPubs(
+            (pubkey, relayTags) =>
+            {
+                // Extract relay URLs from the tags
+                var relays = relayTags
+                    .Select(tag => tag.AdditionalData.FirstOrDefault())
+                    .Where(url => !string.IsNullOrEmpty(url))
+                    .ToList();
+
+                if (relays.Any())
+                {
+                    NostrClients = relays;
+                    InvokeAsync(StateHasChanged);
+                }
+            },
+            null, // onEndOfStream - nothing to do
+            nostrPubKey);
+    }
+
+    private async Task RecoverFunds()
+    {
+        NavigationManager.NavigateTo($"/recover/{ProjectId}");
+    }
+
+    private void InvestInProject()
+    {
+        NavigationManager.NavigateTo($"/investview/{ProjectId}");
+    }
+
+
+    private async Task ShowNsecAsync()
+    {
+        if (!passwordComponent.HasPassword())
+        {
+            passwordComponent.ShowPassword(async () => { await GenerateNsec(); });
+        }
+        else
+        {
+            await GenerateNsec();
+        }
+    }
+
+    private async Task GenerateNsec(Action? onSuccessCallback = null)
+    {
+        isGeneratingNsec = true;
+        errorMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            if (project is FounderProject || project is InvestorProject)
+            {
+                var words = await passwordComponent.GetWalletAsync();
+                var nostrKey = _derivationOperations.DeriveProjectNostrPrivateKey(words, project.ProjectInfo.FounderKey);
+                NostrHexSecKey = Encoders.Hex.EncodeData(nostrKey.ToBytes());
+                NostrNsecSecKey = NostrHelper.ConvertHexToNsec(NostrHexSecKey)!;
+
+                // Execute the callback if provided and keys were generated successfully
+                onSuccessCallback?.Invoke();
+
+                StateHasChanged();
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            HandlePasswordError(); // Keep HandlePasswordError as is, it will call GenerateNsec again without callback
+            Logger.LogWarning(ex, "InvalidOperationException occurred during NSEC generation.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "An unexpected error occurred during NSEC generation.");
+            errorMessage = "An unexpected error occurred. Please try again later.";
+        }
+        finally
+        {
+            isGeneratingNsec = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyNsecSecKeyToClipboardAsync()
+    {
+        if (!string.IsNullOrEmpty(NostrNsecSecKey))
+        {
+            await _clipboardService.WriteTextAsync(NostrNsecSecKey);
+            notificationComponent.ShowNotificationMessage("Copied to clipboard!", 3);
+        }
+    }
+
+    private async Task CopyHexSecKeyToClipboardAsync()
+    {
+        if (!string.IsNullOrEmpty(NostrHexSecKey))
+        {
+            await _clipboardService.WriteTextAsync(NostrHexSecKey);
+            notificationComponent.ShowNotificationMessage("Copied to clipboard!", 3);
+        }
+    }
+
+    private async void HandlePasswordError()
+    {
+        errorMessage = "Incorrect password. Please try again.";
+        StateHasChanged();
+
+        // Show error message for a short time before reopening password prompt
+        await Task.Delay(2000);
+
+        errorMessage = string.Empty;
+        StateHasChanged();
+
+        // Reopen password prompt - no specific callback needed here after generation
+        passwordComponent.ShowPassword(async () =>
+        {
+            isGeneratingNsec = true;
+            StateHasChanged();
+            await GenerateNsec(); // Call GenerateNsec without a callback
+        });
+    }
+
+    private async void OpenInBrowseProfileAsync()
+    {
+        var npub = NostrHelper.ConvertHexToNpub(project.ProjectInfo.NostrPubKey);
+
+        if (!string.IsNullOrEmpty(npub))
+        {
+            var url = $"https://profile.angor.io/profile/{npub}";
+
+            await Js.InvokeVoidAsync("window.open", url, "_blank");
+        }
+        else
+        {
+            notificationComponent.ShowNotificationMessage("Public key is not available.", 3);
+        }
+    }
+
+    private async void OpenInHUBAsync()
+    {
+        var url = $"https://hub.angor.io/project/{project.ProjectInfo.ProjectIdentifier}";
+
+        await Js.InvokeVoidAsync("window.open", url, "_blank");
+    }
+
+    private void OpenMessagingWithFounder()
+    {
+        if (project?.ProjectInfo != null && project is InvestorProject invProject)
+        {
+            Action showMessageAction = () =>
+            {
+                // Set message parameters
+                founderNpub = NostrHelper.ConvertHexToNpub(project.ProjectInfo.NostrPubKey) ??
+                              project.ProjectInfo.NostrPubKey;
+                npubValue = NostrHelper.ConvertHexToNpub(invProject.InvestorNPub) ?? invProject.InvestorNPub;
+
+                // Show message component
+                showMessageModal = true;
+                InvokeAsync(StateHasChanged); // Use InvokeAsync for UI updates from callbacks
+            };
+
+            if (string.IsNullOrEmpty(NostrHexSecKey))
+            {
+                // Private key not available, show password prompt first
+                // Pass the showMessageAction as a callback to GenerateNsec
+                passwordComponent.ShowPassword(async () => { await GenerateNsec(showMessageAction); });
+            }
+            else
+            {
+                // Private key is already available, show message directly
+                showMessageAction();
+            }
+        }
+    }
+
+    private void OnMessageModalClose()
+    {
+        showMessageModal = false;
+        NostrHexSecKey = String.Empty;
+        NostrNsecSecKey = String.Empty;
+        StateHasChanged();
+    }
+
+    public MarkupString ConvertToMarkupString(string input)
+    {
+        string sanitizedInput = HtmlStripperService.StripHtmlTags(input);
+        return new MarkupString(sanitizedInput);
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await _clipboardService.WriteTextAsync(text);
+        notificationComponent.ShowNotificationMessage("Copied to clipboard!", 3);
+    }
+    private bool CanReleaseUnfundedProject()
+    {
+        if (project?.ProjectInfo == null) return false;
+
+        // Project has started and total invested amount is less than target
+        return project.ProjectInfo.StartDate <= DateTime.UtcNow
+               && projectStats?.TotalRaised < project.ProjectInfo.TargetAmount;
+    }
+    private async Task RepublishToNostr()
+    {
+        if (!founder)
+        {
+            notificationComponent.ShowErrorMessage("Only the founder can republish.");
+            return;
+        }
+
+        if (!passwordComponent.HasPassword())
+        {
+            passwordComponent.ShowPassword(async () => { await RepublishNostrData(); });
+        }
+        else
+        {
+            await RepublishNostrData();
+        }
+    }
+
+    private async Task RepublishNostrData()
+    {
+        isRepublishing = true;
+        errorMessage = string.Empty;
+        StateHasChanged();
+
+        try
+        {
+            var words = await passwordComponent.GetWalletAsync();
+            var nostrKey = _derivationOperations.DeriveProjectNostrPrivateKey(words, project.ProjectInfo.FounderKey);
+            var nostrKeyHex = Encoders.Hex.EncodeData(nostrKey.ToBytes());
+
+            var metadataResult = await _RelayService.CreateNostrProfileAsync(
+                project.Metadata.ToNostrMetadata(),
+                nostrKeyHex,
+                _ =>
+                {
+                    if (!_.Accepted)
+                    {
+                        Logger.LogWarning("Failed to republish Nostr profile metadata");
+                    }
+                });
+
+            var projectInfoResult = await _RelayService.AddProjectAsync(
+                project.ProjectInfo,
+                nostrKeyHex,
+                _ =>
+                {
+                    if (!_.Accepted)
+                    {
+                        Logger.LogWarning("Failed to republish project information to relay");
+                    }
+                });
+
+            if (!string.IsNullOrEmpty(metadataResult) && !string.IsNullOrEmpty(projectInfoResult))
+            {
+                notificationComponent.ShowNotificationMessage("Successfully republished to Nostr relays", 3);
+            }
+            else
+            {
+                notificationComponent.ShowNotificationMessage("Partially republished to Nostr relays. Check logs for details.", 3);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error republishing to Nostr");
+            notificationComponent.ShowErrorMessage("Failed to republish: " + ex.Message, ex);
+        }
+        finally
+        {
+            isRepublishing = false;
+            StateHasChanged();
+        }
+    }
+}
+

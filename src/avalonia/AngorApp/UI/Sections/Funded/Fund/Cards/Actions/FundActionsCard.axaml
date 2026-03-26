@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:founder="clr-namespace:Angor.Sdk.Funding.Founder;assembly=Angor.Sdk"
+             xmlns:cards="clr-namespace:AngorApp.UI.Sections.Funded.Fund.Cards"
+             xmlns:model="clr-namespace:AngorApp.Model.Funded.Shared.Model;assembly=AngorApp.Model"
+             xmlns:actions="clr-namespace:AngorApp.UI.Sections.Funded.Fund.Cards.Actions"
+             xmlns:controls="clr-namespace:AngorApp.UI.Shared.Controls"
+             mc:Ignorable="d"
+             d:DesignWidth="400"
+             ClipToBounds="False"
+             x:Class="AngorApp.UI.Sections.Funded.Fund.Cards.Actions.FundActionsCard"
+             x:DataType="model:IFunded">
+    
+        <StackPanel Classes="Gap-XL">
+            <actions:InvestedCard
+                IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.Invested}}" />
+            <actions:PendingFounderSignaturesCard
+                IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.PendingFounderSignatures}}" />
+            <actions:FounderSignaturesReceivedCard
+                IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.FounderSignaturesReceived}}" />
+            <actions:InvalidCard
+                IsVisible="{Binding InvestorData.Status^, Converter={x:Static controls:AngorConverters.IsEqualTo}, ConverterParameter={x:Static founder:InvestmentStatus.Invalid}}" />
+        </StackPanel>
+</UserControl>

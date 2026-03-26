@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:AngorApp.UI.Shared.Controls"
+             xmlns:model="clr-namespace:AngorApp.UI.Flows.CreateProject.Wizard.InvestmentProject.Model"
+             xmlns:stages="clr-namespace:AngorApp.UI.Flows.CreateProject.Wizard.InvestmentProject.Stages"
+             mc:Ignorable="d" d:DesignWidth="800"
+             x:Class="AngorApp.UI.Flows.CreateProject.Wizard.InvestmentProject.Stages.StagesSimpleEditor"
+             x:DataType="stages:IStagesViewModel">
+    <Design.DataContext>
+        <stages:StagesViewModelSample />
+    </Design.DataContext>
+    <UserControl.Styles>
+        <Style Selector="ComboBox">
+            <Setter Property="Background" Value="{DynamicResource Surface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Stroke}" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Classes="Gap-XL">
+        <StackPanel Classes="Gap-XL" IsVisible="{Binding !!!NewProject.Stages.Count}">
+            <HeaderedContainer Classes="Card Neutral Window">
+                <HeaderedContainer.Header>
+                    <TextBlock>How long will the project take?</TextBlock>
+                </HeaderedContainer.Header>
+                <HeaderedContainer Header="Project Length">
+                    <StackPanel Classes="Gap-XL">
+                        <DockPanel HorizontalSpacing="10">
+                            <ComboBox DisplayMemberBinding="{Binding Title, DataType=model:PeriodOption}"
+                                      ItemsSource="{Binding DurationUnits}"
+                                      SelectedValueBinding="{Binding Unit}"
+                                      SelectedValue="{Binding SelectedDurationUnit, Mode=TwoWay}"
+                                      DockPanel.Dock="Right"
+                                      VerticalAlignment="Center" />
+                            <TextBox Text="{Binding SelectedDurationValue, Mode=TwoWay}" />
+                        </DockPanel>
+                        <ListBox ItemContainerTheme="{StaticResource ButtonizedAccentListBoxItem}"
+                                 Background="Transparent"
+                                 ItemsSource="{Binding DurationPresets^}"
+                                 SelectedItem="{Binding SelectedLength, Mode=TwoWay}">
+
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel ItemSpacing="10" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="model:PeriodOption">
+                                    <TextBlock Classes="Bold" TextAlignment="Center" Text="{Binding Title}" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+
+                </HeaderedContainer>
+            </HeaderedContainer>
+            <HeaderedContainer Classes="Card Neutral Window">
+                <HeaderedContainer.Header>
+                    <TextBlock>How would you like the payments to be split up?</TextBlock>
+                </HeaderedContainer.Header>
+
+                <ListBox ItemContainerTheme="{StaticResource ButtonizedAccentListBoxItem}"
+                         Background="Transparent"
+                         ItemsSource="{Binding ReleaseFrequencies}"
+                         SelectedItem="{Binding ReleaseFrequency, Mode=TwoWay}">
+
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel ItemSpacing="10" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="model:PeriodOption">
+                            <TextBlock Classes="Bold" TextAlignment="Center" Text="{Binding Title}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </HeaderedContainer>
+            <EnhancedButton HorizontalAlignment="Stretch" Classes="Emphasized" HorizontalContentAlignment="Center" Command="{Binding GenerateStages}">Generate Stages</EnhancedButton>
+        </StackPanel>
+
+        <stages:StagesCard IsVisible="{Binding !!NewProject.Stages.Count}" />
+
+    </StackPanel>
+
+</UserControl>
