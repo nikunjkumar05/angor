@@ -5,10 +5,12 @@ using System.Runtime.CompilerServices;
 using Angor.Sdk.Funding.Projects;
 using Angor.Sdk.Funding.Projects.Dtos;
 using Angor.Sdk.Funding.Projects.Operations;
+using Angor.Sdk.Funding.Shared;
 using Avalonia.Media.Imaging;
 using App.UI.Sections.Portfolio;
 using App.UI.Shared;
 using App.UI.Shared.Helpers;
+using Microsoft.Extensions.Logging;
 
 namespace App.UI.Sections.FindProjects;
 
@@ -24,12 +26,33 @@ public class ProjectItemViewModel : INotifyPropertyChanged
     public string ProjectName { get; set; } = "";
     public string ShortDescription { get; set; } = "";
     public string Description { get; set; } = "";
-    public int InvestorCount { get; set; }
+
+    private int _investorCount;
+    public int InvestorCount
+    {
+        get => _investorCount;
+        set { _investorCount = value; OnPropertyChanged(); }
+    }
+
     public string InvestorLabel { get; set; } = "Investors";
-    public string Raised { get; set; } = "0.00000";
+
+    private string _raised = "0.00000";
+    public string Raised
+    {
+        get => _raised;
+        set { _raised = value; OnPropertyChanged(); }
+    }
+
     public string Target { get; set; } = "0.00000";
     public string TargetLabel { get; set; } = "Target:";
-    public double Progress { get; set; }
+
+    private double _progress;
+    public double Progress
+    {
+        get => _progress;
+        set { _progress = value; OnPropertyChanged(); }
+    }
+
     public string ProjectType { get; set; } = "Invest";
     public string Status { get; set; } = "Open";
 
@@ -67,6 +90,9 @@ public class ProjectItemViewModel : INotifyPropertyChanged
     public string PayoutFrequency { get; set; } = "Monthly";
     public long SubscriptionPrice { get; set; } = 20000;
 
+    /// <summary>Formatted subscription price display, e.g. "0.0002 BTC"</summary>
+    public string SubscriptionPriceDisplay => $"{SubscriptionPrice.ToUnitBtc():G} {CurrencySymbol}";
+
     public ObservableCollection<InvestmentStageViewModel> Stages { get; set; } = new();
 
     private Shared.ProjectType TypeEnum => ProjectTypeExtensions.FromDisplayString(ProjectType);
@@ -84,12 +110,15 @@ public class ProjectItemViewModel : INotifyPropertyChanged
     public bool IsFunded => Status == "Funded";
     public bool IsFundingClosed => Status == "Funding Closed";
 
+    /// <summary>Currency symbol for display (e.g. "BTC", "TBTC")</summary>
+    public string CurrencySymbol { get; set; } = "BTC";
+
     /// <summary>
     /// Map an SDK ProjectDto to a UI ProjectItemViewModel.
     /// </summary>
     public static ProjectItemViewModel FromDto(ProjectDto dto)
     {
-        var targetBtc = dto.TargetAmount / 100_000_000.0;
+        var targetBtc = (double)dto.TargetAmount.ToUnitBtc();
         var projectType = dto.ProjectType switch
         {
             Angor.Shared.Models.ProjectType.Fund => "Fund",
@@ -119,7 +148,7 @@ public class ProjectItemViewModel : INotifyPropertyChanged
                     StageNumber = stage.Index + 1,
                     Percentage = $"{stage.RatioOfTotal * 100:F0}%",
                     ReleaseDate = stage.ReleaseDate.ToString("dd MMM yyyy"),
-                    Amount = (stage.Amount / 100_000_000.0).ToString("F8", CultureInfo.InvariantCulture),
+                    Amount = stage.Amount.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture),
                     Status = "Pending"
                 });
             }
@@ -158,30 +187,56 @@ public partial class FindProjectsViewModel : ReactiveObject
 {
     private readonly IProjectAppService _projectAppService;
     private readonly Func<ProjectItemViewModel, InvestPageViewModel> _investPageFactory;
+    private readonly ICurrencyService _currencyService;
+    private readonly ILogger<FindProjectsViewModel> _logger;
+
+    /// <summary>Currency symbol from ICurrencyService (e.g. "BTC", "TBTC").</summary>
+    public string CurrencySymbol => _currencyService.Symbol;
 
     [Reactive] private ProjectItemViewModel? selectedProject;
     [Reactive] private InvestPageViewModel? investPageViewModel;
     [Reactive] private bool isLoading;
 
-    public void OpenProjectDetail(ProjectItemViewModel project) => SelectedProject = project;
-    public void CloseProjectDetail() => SelectedProject = null;
+    public void OpenProjectDetail(ProjectItemViewModel project)
+    {
+        _logger.LogInformation("Opening project detail: '{ProjectName}' (ID: {ProjectId})", project.ProjectName, project.ProjectId);
+        SelectedProject = project;
+    }
+
+    public void CloseProjectDetail()
+    {
+        _logger.LogInformation("Closing project detail");
+        SelectedProject = null;
+    }
 
     public void OpenInvestPage()
     {
         if (SelectedProject == null) return;
+        _logger.LogInformation("Opening invest page for project '{ProjectName}' (ID: {ProjectId})",
+            SelectedProject.ProjectName, SelectedProject.ProjectId);
         InvestPageViewModel = _investPageFactory(SelectedProject);
     }
 
-    public void CloseInvestPage() => InvestPageViewModel = null;
+    public void CloseInvestPage()
+    {
+        _logger.LogInformation("Closing invest page");
+        InvestPageViewModel = null;
+    }
 
     public ObservableCollection<ProjectItemViewModel> Projects { get; } = new();
 
     public FindProjectsViewModel(
         IProjectAppService projectAppService,
-        Func<ProjectItemViewModel, InvestPageViewModel> investPageFactory)
+        Func<ProjectItemViewModel, InvestPageViewModel> investPageFactory,
+        ICurrencyService currencyService,
+        ILogger<FindProjectsViewModel> logger)
     {
         _projectAppService = projectAppService;
         _investPageFactory = investPageFactory;
+        _currencyService = currencyService;
+        _logger = logger;
+
+        _logger.LogInformation("FindProjectsViewModel created");
 
         // Load projects from SDK
         _ = LoadProjectsFromSdkAsync();
@@ -194,6 +249,7 @@ public partial class FindProjectsViewModel : ReactiveObject
     public async Task LoadProjectsFromSdkAsync()
     {
         IsLoading = true;
+        _logger.LogInformation("Loading latest projects from SDK...");
 
         try
         {
@@ -204,17 +260,69 @@ public partial class FindProjectsViewModel : ReactiveObject
                 Projects.Clear();
                 foreach (var dto in result.Value.Projects)
                 {
-                    Projects.Add(ProjectItemViewModel.FromDto(dto));
+                    var vm = ProjectItemViewModel.FromDto(dto);
+                    vm.CurrencySymbol = _currencyService.Symbol;
+                    Projects.Add(vm);
                 }
+                _logger.LogInformation("Loaded {Count} project(s) from SDK", Projects.Count);
+
+                // Fire-and-forget statistics loading for each project
+                _ = LoadProjectStatisticsAsync();
+            }
+            else
+            {
+                _logger.LogWarning("Latest projects request failed: {Error}", result.Error);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // SDK call failed - projects list remains empty
+            _logger.LogError(ex, "Error loading projects from SDK");
         }
         finally
         {
             IsLoading = false;
         }
+    }
+
+    /// <summary>
+    /// Fetch project statistics (investor count, raised amount) for all loaded projects.
+    /// Updates each ProjectItemViewModel in-place as results arrive.
+    /// </summary>
+    private async Task LoadProjectStatisticsAsync()
+    {
+        var tasks = Projects
+            .Where(p => !string.IsNullOrEmpty(p.ProjectId))
+            .Select(async project =>
+            {
+                try
+                {
+                    var statsResult = await _projectAppService.GetProjectStatistics(
+                        new ProjectId(project.ProjectId));
+
+                    if (statsResult.IsSuccess)
+                    {
+                        var stats = statsResult.Value;
+                        var raisedBtc = (double)stats.TotalInvested.ToUnitBtc();
+                        project.Raised = raisedBtc.ToString("F5", CultureInfo.InvariantCulture);
+                        project.InvestorCount = stats.TotalInvestors ?? 0;
+
+                        // Compute progress as percentage of target
+                        if (double.TryParse(project.Target, NumberStyles.Float, CultureInfo.InvariantCulture, out var target) && target > 0)
+                        {
+                            project.Progress = Math.Min(raisedBtc / target * 100, 100);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug("GetProjectStatistics failed for {ProjectId}: {Error}", project.ProjectId, statsResult.Error);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Error loading statistics for project {ProjectId}", project.ProjectId);
+                }
+            });
+
+        await Task.WhenAll(tasks);
     }
 }

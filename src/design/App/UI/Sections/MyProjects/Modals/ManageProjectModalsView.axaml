@@ -84,14 +84,22 @@
                                             <Grid ColumnDefinitions="*,Auto">
                                                 <!-- Left: amount + txid -->
                                                 <StackPanel Grid.Column="0" Spacing="4">
-                                                    <TextBlock Text="{Binding Amount, StringFormat={}{0} BTC}"
-                                                               FontSize="14" FontWeight="SemiBold"
-                                                               Foreground="{DynamicResource TextStrong}" />
+                                                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextStrong}">
+                                                        <TextBlock.Text>
+                                                            <MultiBinding StringFormat="{}{0} {1}">
+                                                                <Binding Path="Amount" />
+                                                                <Binding Path="$parent[UserControl].DataContext.CurrencySymbol" />
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
                                                     <TextBlock Text="{Binding TxId}"
                                                                FontSize="12"
                                                                Foreground="{DynamicResource UtxoTxidText}"
                                                                FontFamily="Courier New, monospace"
-                                                               TextWrapping="Wrap" />
+                                                               TextWrapping="Wrap"
+                                                               Cursor="Hand"
+                                                               Classes="ExplorerTxLink" />
                                                 </StackPanel>
                                                 <!-- Right: checkbox toggle -->
                                                 <!-- Vue: .settings-toggle-button 24x24, border 2px -->
@@ -294,7 +302,14 @@
                                FontSize="16"
                                Foreground="{DynamicResource ModalDescriptionText}">
                         <Run Text="Successfully claimed " />
-                        <Run Text="{Binding ClaimedAmount, StringFormat={}{0} BTC, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run FontWeight="SemiBold">
+                            <Run.Text>
+                                <MultiBinding StringFormat="{}{0} {1}">
+                                    <Binding Path="ClaimedAmount" />
+                                    <Binding Path="CurrencySymbol" />
+                                </MultiBinding>
+                            </Run.Text>
+                        </Run>
                         <Run Text=" into your Angor Account Bitcoin wallet." />
                     </TextBlock>
 
@@ -382,14 +397,22 @@
                                                 Opacity="0.75">
                                             <Grid ColumnDefinitions="*,Auto">
                                                 <StackPanel Grid.Column="0" Spacing="4">
-                                                    <TextBlock Text="{Binding Amount, StringFormat={}{0} BTC}"
-                                                               FontSize="14" FontWeight="SemiBold"
-                                                               Foreground="{DynamicResource TextStrong}" />
+                                                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextStrong}">
+                                                        <TextBlock.Text>
+                                                            <MultiBinding StringFormat="{}{0} {1}">
+                                                                <Binding Path="Amount" />
+                                                                <Binding Path="$parent[UserControl].DataContext.CurrencySymbol" />
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
                                                     <TextBlock Text="{Binding TxId}"
                                                                FontSize="12"
                                                                Foreground="{DynamicResource UtxoTxidText}"
                                                                FontFamily="Courier New, monospace"
-                                                               TextWrapping="Wrap" />
+                                                               TextWrapping="Wrap"
+                                                               Cursor="Hand"
+                                                               Classes="ExplorerTxLink" />
                                                 </StackPanel>
                                                 <!-- Disabled checkbox (always checked, green bg/border) -->
                                                 <Border Grid.Column="1"
@@ -592,7 +615,14 @@
                                TextWrapping="Wrap"
                                FontSize="16"
                                Foreground="{DynamicResource ModalDescriptionText}">
-                        <Run Text="{Binding ReleasedAmount, StringFormat={}{0} BTC, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run FontWeight="SemiBold">
+                            <Run.Text>
+                                <MultiBinding StringFormat="{}{0} {1}">
+                                    <Binding Path="ReleasedAmount" Mode="OneWay" />
+                                    <Binding Path="CurrencySymbol" />
+                                </MultiBinding>
+                            </Run.Text>
+                        </Run>
                         <Run Text=" has been successfully returned to investors." />
                     </TextBlock>
 
@@ -669,14 +699,22 @@
                                                 Margin="0,0,0,12">
                                             <Grid ColumnDefinitions="*,Auto">
                                                 <StackPanel Grid.Column="0" Spacing="4">
-                                                    <TextBlock Text="{Binding Amount, StringFormat={}{0} BTC}"
-                                                               FontSize="14" FontWeight="SemiBold"
-                                                               Foreground="{DynamicResource TextStrong}" />
+                                                    <TextBlock FontSize="14" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextStrong}">
+                                                        <TextBlock.Text>
+                                                            <MultiBinding StringFormat="{}{0} {1}">
+                                                                <Binding Path="Amount" />
+                                                                <Binding Path="$parent[UserControl].DataContext.CurrencySymbol" />
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
                                                     <TextBlock Text="{Binding TxId}"
                                                                FontSize="12"
                                                                Foreground="{DynamicResource UtxoTxidText}"
                                                                FontFamily="Courier New, monospace"
-                                                               TextWrapping="Wrap" />
+                                                               TextWrapping="Wrap"
+                                                               Cursor="Hand"
+                                                               Classes="ExplorerTxLink" />
                                                 </StackPanel>
                                                 <!-- Spent badge (amber) -->
                                                 <!-- Vue: text-xs, bg-amber-100/bg-amber-900 bg-opacity-30, text-amber-700/text-amber-300, opacity-60 -->

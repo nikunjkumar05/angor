@@ -7,8 +7,10 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Angor.Shared.Models;
+using App.UI.Shared;
 using App.UI.Shared.Helpers;
 using App.UI.Shell;
+using Microsoft.Extensions.DependencyInjection;
 using Projektanker.Icons.Avalonia;
 
 namespace App.UI.Sections.Funds;
@@ -33,6 +35,9 @@ public partial class WalletDetailModal : UserControl, IBackdropCloseable
     private string _walletId = "";
     private readonly HashSet<string> _selectedUtxos = new();
     private List<UtxoData> _utxos = new();
+
+    private ICurrencyService CurrencyService =>
+        App.Services.GetRequiredService<ICurrencyService>();
 
     public WalletDetailModal()
     {
@@ -219,6 +224,29 @@ public partial class WalletDetailModal : UserControl, IBackdropCloseable
         copyBtn.Content = iconControl;
         txidRow.Children.Add(copyBtn);
 
+        // Explorer button — open txid in block explorer
+        var exploreBtn = new Button
+        {
+            Padding = new Thickness(6),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        exploreBtn.Classes.Add("ModalBtn");
+        var exploreIcon = new Icon
+        {
+            Value = "fa-solid fa-arrow-up-right-from-square",
+            FontSize = 14,
+        };
+        exploreIcon.Classes.Add("TextMuted");
+        exploreBtn.Content = exploreIcon;
+        var capturedTxid = txid; // capture for closure
+        exploreBtn.Click += (_, _) =>
+        {
+            var networkService = App.Services.GetRequiredService<Angor.Shared.Services.INetworkService>();
+            ExplorerHelper.OpenTransaction(networkService, capturedTxid);
+        };
+        txidRow.Children.Add(exploreBtn);
+
         txidSection.Children.Add(txidRow);
         infoStack.Children.Add(txidSection);
 
@@ -226,14 +254,14 @@ public partial class WalletDetailModal : UserControl, IBackdropCloseable
         var statsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
 
         // Amount (value is in satoshis, convert to BTC)
-        double amountBtc = utxo.value / 100_000_000.0;
+        double amountBtc = (double)utxo.value.ToUnitBtc();
         var amountPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         var amountLabel = new TextBlock { Text = "Amount:", FontSize = 13 };
         amountLabel.Classes.Add("TextMuted");
         amountPanel.Children.Add(amountLabel);
         var amountValue = new TextBlock
         {
-            Text = $"{amountBtc:F8} BTC",
+            Text = CurrencyService.FormatBtc(amountBtc),
             FontSize = 13,
             FontWeight = FontWeight.SemiBold,
         };
@@ -357,7 +385,7 @@ public partial class WalletDetailModal : UserControl, IBackdropCloseable
             var totalSats = _utxos
                 .Where(u => _selectedUtxos.Contains(u.outpoint?.ToString() ?? ""))
                 .Sum(u => u.value);
-            sendModal.PrefillAmount(totalSats / 100_000_000.0);
+            sendModal.PrefillAmount((double)totalSats.ToUnitBtc());
         }
 
         shellVm.ShowModal(sendModal);

@@ -22,6 +22,7 @@ using App.UI.Sections.MyProjects;
 using App.UI.Sections.MyProjects.Deploy;
 using App.UI.Sections.Portfolio;
 using App.UI.Sections.Settings;
+using App.UI.Shared;
 using App.UI.Shell;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -35,12 +36,12 @@ namespace App.Composition;
 /// </summary>
 public static class CompositionRoot
 {
-    public static IServiceProvider BuildServiceProvider(string profileName = "Default")
+    public static IServiceProvider BuildServiceProvider(string profileName = "Default", bool enableConsoleLogging = true)
     {
         var services = new ServiceCollection();
 
         var applicationStorage = new AppApplicationStorage();
-        var profileContext = new ProfileContext("App", applicationStorage.SanitizeProfileName(profileName));
+        var profileContext = new ProfileContext("Angor", applicationStorage.SanitizeProfileName(profileName));
 
         var store = new FileStore(applicationStorage, profileContext);
         var networkStorage = new NetworkStorage(store);
@@ -51,13 +52,28 @@ public static class CompositionRoot
         };
 
         // Logging — Microsoft.Extensions.Logging with console output
-        services.AddLogging(builder => builder.AddConsole());
+        services.AddLogging(builder =>
+        {
+            builder.ClearProviders();
+
+            if (enableConsoleLogging)
+            {
+                builder.AddConsole();
+            }
+
+            // Suppress noisy per-request HTTP diagnostics (Sending/Received for every call)
+            builder.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+            // Suppress verbose per-address balance/utxo and derivation logs
+            builder.AddFilter("Angor.Shared.WalletOperations", LogLevel.Warning);
+            builder.AddFilter("Angor.Shared.DerivationOperations", LogLevel.Warning);
+        });
 
         // Minimal Serilog logger required by SDK Register methods (parameter signature)
         var serilogLogger = new LoggerConfiguration().CreateLogger();
 
         // Core infrastructure
         services.AddSingleton<IApplicationStorage>(applicationStorage);
+        services.AddSingleton(profileContext);
         services.AddLiteDbDocumentStorage(profileContext);
         services.AddKeyedSingleton<IStore>("file", store);
         services.AddSingleton<IStore>(provider => provider.GetKeyedService<IStore>("file")!);
@@ -82,13 +98,16 @@ public static class CompositionRoot
         FundingContextServices.Register(services, serilogLogger);
         services.AddSingleton<ISeedwordsProvider, SeedwordsProvider>();
 
+        // Currency symbol service — reads ticker from INetworkConfiguration
+        services.AddSingleton<ICurrencyService, CurrencyService>();
+
         // ── Shared singletons (replaces SharedViewModels static class) ──
         services.AddSingleton<SignatureStore>();
         services.AddSingleton<PrototypeSettings>();
         services.AddSingleton<PortfolioViewModel>();
 
         // ── Section VMs (transient — fresh per navigation) ──
-        services.AddTransient<ShellViewModel>();
+        services.AddSingleton<ShellViewModel>();
         services.AddTransient<SettingsViewModel>();
         services.AddTransient<FundsViewModel>();
         services.AddTransient<FindProjectsViewModel>();
@@ -104,13 +123,18 @@ public static class CompositionRoot
                 project,
                 sp.GetRequiredService<IWalletAppService>(),
                 sp.GetRequiredService<IInvestmentAppService>(),
-                sp.GetRequiredService<PortfolioViewModel>()));
+                sp.GetRequiredService<PortfolioViewModel>(),
+                sp.GetRequiredService<ICurrencyService>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<InvestPageViewModel>()));
 
         services.AddSingleton<Func<MyProjectItemViewModel, ManageProjectViewModel>>(sp =>
             project => new ManageProjectViewModel(
                 project,
                 sp.GetRequiredService<IFounderAppService>(),
-                sp.GetRequiredService<IProjectService>()));
+                sp.GetRequiredService<IProjectAppService>(),
+                sp.GetRequiredService<IProjectService>(),
+                sp.GetRequiredService<ICurrencyService>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<ManageProjectViewModel>()));
 
         // ── Section Views (transient — each receives its VM via constructor injection) ──
         services.AddTransient<HomeView>();

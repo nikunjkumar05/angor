@@ -12,6 +12,8 @@ using ReactiveUI;
 
 namespace App.UI.Sections.MyProjects.Deploy;
 
+
+
 /// <summary>Which screen the deploy overlay is showing.</summary>
 public enum DeployScreen
 {
@@ -25,7 +27,9 @@ public partial class WalletItem : ReactiveObject
 {
     public string Name { get; set; } = "";
     public string Network { get; set; } = "Bitcoin";
-    public string Balance { get; set; } = "0.00000000 BTC";
+    public string Balance { get; set; } = "0.00000000";
+    /// <summary>Balance in satoshis for programmatic comparison (e.g. balance checks before payment).</summary>
+    public long BalanceSats { get; set; }
     /// <summary>SDK WalletId for operations</summary>
     public string WalletId { get; set; } = "";
 
@@ -42,6 +46,7 @@ public partial class DeployFlowViewModel : ReactiveObject
     private readonly IWalletAppService _walletAppService;
     private readonly IProjectAppService _projectAppService;
     private readonly IFounderAppService _founderAppService;
+    private readonly ICurrencyService _currencyService;
     private CancellationTokenSource? _invoiceMonitorCts;
 
     // ── State ──
@@ -50,17 +55,23 @@ public partial class DeployFlowViewModel : ReactiveObject
     [Reactive] private WalletItem? selectedWallet;
     [Reactive] private bool isDeploying;
     [Reactive] private string deployStatusText = "Waiting for payment...";
+    [Reactive] private long selectedFeeRate = 20;
+    [Reactive] private string? deployErrorMessage;
 
     // ── Derived visibility ──
     public bool IsWalletSelector => CurrentScreen == DeployScreen.WalletSelector;
     public bool IsPayFee => CurrentScreen == DeployScreen.PayFee;
     public bool IsSuccess => CurrentScreen == DeployScreen.Success;
     public bool HasSelectedWallet => SelectedWallet != null;
+    public bool HasDeployError => !string.IsNullOrWhiteSpace(DeployErrorMessage);
     public string PayButtonText => SelectedWallet != null
         ? $"Pay with {SelectedWallet.Name}"
         : "Choose Wallet";
 
-    public string DeployFee { get; } = "0.0001 BTC";
+    public string DeployFee => $"0.0001 {_currencyService.Symbol}";
+
+    /// <summary>Currency symbol from ICurrencyService (e.g. "BTC", "TBTC").</summary>
+    public string CurrencySymbol => _currencyService.Symbol;
     public string InvoiceString { get; } = Constants.InvoiceString;
 
     public string ProjectName { get; set; } = "My Project";
@@ -77,11 +88,13 @@ public partial class DeployFlowViewModel : ReactiveObject
     public DeployFlowViewModel(
         IWalletAppService walletAppService,
         IProjectAppService projectAppService,
-        IFounderAppService founderAppService)
+        IFounderAppService founderAppService,
+        ICurrencyService currencyService)
     {
         _walletAppService = walletAppService;
         _projectAppService = projectAppService;
         _founderAppService = founderAppService;
+        _currencyService = currencyService;
         // Initialize ReactiveCommands for async payment operations
         PayWithWalletCommand = ReactiveCommand.CreateFromTask(PayWithWalletAsync);
         PayViaInvoiceCommand = ReactiveCommand.CreateFromTask(PayViaInvoiceAsync);
@@ -94,6 +107,9 @@ public partial class DeployFlowViewModel : ReactiveObject
                 this.RaisePropertyChanged(nameof(IsPayFee));
                 this.RaisePropertyChanged(nameof(IsSuccess));
             });
+
+        this.WhenAnyValue(x => x.DeployErrorMessage)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(HasDeployError)));
 
         this.WhenAnyValue(x => x.SelectedWallet)
             .Subscribe(_ =>
@@ -113,6 +129,7 @@ public partial class DeployFlowViewModel : ReactiveObject
         foreach (var w in Wallets) w.IsSelected = false;
         IsDeploying = false;
         DeployStatusText = "Waiting for payment...";
+        DeployErrorMessage = null;
         IsVisible = true;
 
         // Load wallets from SDK
@@ -125,26 +142,30 @@ public partial class DeployFlowViewModel : ReactiveObject
         try
         {
             var metadatasResult = await _walletAppService.GetMetadatas();
-            if (metadatasResult.IsFailure) return;
+            if (metadatasResult.IsFailure)
+            {
+                DeployErrorMessage = metadatasResult.Error;
+                return;
+            }
 
             Wallets.Clear();
             foreach (var meta in metadatasResult.Value)
             {
                 var balanceResult = await _walletAppService.GetBalance(meta.Id);
-                var balanceBtc = balanceResult.IsSuccess ? balanceResult.Value.Sats / 100_000_000.0 : 0;
+                var balanceBtc = balanceResult.IsSuccess ? (double)balanceResult.Value.Sats.ToUnitBtc() : 0;
 
                 Wallets.Add(new WalletItem
                 {
                     Name = meta.Name,
                     Network = "Bitcoin",
-                    Balance = $"{balanceBtc:F8} BTC",
+                    Balance = $"{balanceBtc:F8} {_currencyService.Symbol}",
                     WalletId = meta.Id.Value
                 });
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Wallet loading failed
+            DeployErrorMessage = ex.Message;
         }
     }
 
@@ -155,6 +176,7 @@ public partial class DeployFlowViewModel : ReactiveObject
     public void Close()
     {
         _invoiceMonitorCts?.Cancel();
+        DeployErrorMessage = null;
         IsVisible = false;
     }
 
@@ -178,10 +200,12 @@ public partial class DeployFlowViewModel : ReactiveObject
         if (ProjectData == null)
         {
             DeployStatusText = "No project data available.";
+            DeployErrorMessage = "No project data available.";
             return;
         }
 
         IsDeploying = true;
+        DeployErrorMessage = null;
 
         try
         {
@@ -194,6 +218,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (keysResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create project keys: {keysResult.Error}";
+                DeployErrorMessage = keysResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -206,6 +231,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (profileResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create profile: {profileResult.Error}";
+                DeployErrorMessage = profileResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -216,6 +242,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (infoResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create project info: {infoResult.Error}";
+                DeployErrorMessage = infoResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -224,11 +251,11 @@ public partial class DeployFlowViewModel : ReactiveObject
 
             // Step 4: Create blockchain transaction
             DeployStatusText = "Building transaction...";
-            var feeRate = 20L; // sats/vByte default
-            var txResult = await _projectAppService.CreateProject(walletId, feeRate, ProjectData, infoEventId, projectSeed);
+            var txResult = await _projectAppService.CreateProject(walletId, SelectedFeeRate, ProjectData, infoEventId, projectSeed);
             if (txResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create transaction: {txResult.Error}";
+                DeployErrorMessage = txResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -242,15 +269,18 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (publishResult.IsFailure)
             {
                 DeployStatusText = $"Failed to publish: {publishResult.Error}";
+                DeployErrorMessage = publishResult.Error;
                 IsDeploying = false;
                 return;
             }
 
+            DeployErrorMessage = null;
             CurrentScreen = DeployScreen.Success;
         }
         catch (Exception ex)
         {
             DeployStatusText = $"Deployment error: {ex.Message}";
+            DeployErrorMessage = ex.Message;
         }
         finally
         {
@@ -282,6 +312,7 @@ public partial class DeployFlowViewModel : ReactiveObject
         if (ProjectData == null)
         {
             DeployStatusText = "No project data available.";
+            DeployErrorMessage = "No project data available.";
             return;
         }
 
@@ -290,10 +321,12 @@ public partial class DeployFlowViewModel : ReactiveObject
         if (wallet == null || string.IsNullOrEmpty(wallet.WalletId))
         {
             DeployStatusText = "No wallet available for invoice monitoring.";
+            DeployErrorMessage = "No wallet available for invoice monitoring.";
             return;
         }
 
         IsDeploying = true;
+        DeployErrorMessage = null;
         _invoiceMonitorCts?.Cancel();
         _invoiceMonitorCts = new CancellationTokenSource();
 
@@ -308,6 +341,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (keysResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create project keys: {keysResult.Error}";
+                DeployErrorMessage = keysResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -323,6 +357,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (profileResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create profile: {profileResult.Error}";
+                DeployErrorMessage = profileResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -333,6 +368,7 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (infoResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create project info: {infoResult.Error}";
+                DeployErrorMessage = infoResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -341,11 +377,11 @@ public partial class DeployFlowViewModel : ReactiveObject
 
             // Step 4: Create blockchain transaction
             DeployStatusText = "Building transaction...";
-            var feeRate = 20L;
-            var txResult = await _projectAppService.CreateProject(walletId, feeRate, ProjectData, infoEventId, projectSeed);
+            var txResult = await _projectAppService.CreateProject(walletId, SelectedFeeRate, ProjectData, infoEventId, projectSeed);
             if (txResult.IsFailure)
             {
                 DeployStatusText = $"Failed to create transaction: {txResult.Error}";
+                DeployErrorMessage = txResult.Error;
                 IsDeploying = false;
                 return;
             }
@@ -357,19 +393,23 @@ public partial class DeployFlowViewModel : ReactiveObject
             if (publishResult.IsFailure)
             {
                 DeployStatusText = $"Failed to publish: {publishResult.Error}";
+                DeployErrorMessage = publishResult.Error;
                 IsDeploying = false;
                 return;
             }
 
+            DeployErrorMessage = null;
             CurrentScreen = DeployScreen.Success;
         }
         catch (OperationCanceledException)
         {
             DeployStatusText = "Invoice monitoring cancelled.";
+            DeployErrorMessage = "Invoice monitoring cancelled.";
         }
         catch (Exception ex)
         {
             DeployStatusText = $"Deployment error: {ex.Message}";
+            DeployErrorMessage = ex.Message;
         }
         finally
         {

@@ -1,13 +1,19 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Threading;
+using Angor.Sdk.Common;
+using Angor.Sdk.Funding.Investor;
 using Angor.Sdk.Wallet.Application;
+using Angor.Sdk.Wallet.Domain;
 using App.UI.Sections.FindProjects;
+using App.UI.Sections.Funds;
 using App.UI.Sections.MyProjects;
 using App.UI.Sections.Portfolio;
 using App.UI.Shared;
 
 namespace App.UI.Shell;
+
+// ICurrencyService is resolved from DI and threaded through to sub-types that need it.
 
 /// <summary>
 /// A wallet item for the header wallet-switcher modal.
@@ -23,10 +29,12 @@ public partial class WalletSwitcherItem : ReactiveObject
     public double Balance { get; set; }
     /// <summary>Subtitle: "{TypeLabel} • {SeedGroupName}".</summary>
     public string Subtitle { get; set; } = "";
+    /// <summary>Currency symbol from ICurrencyService (e.g. "BTC", "TBTC").</summary>
+    public string CurrencySymbol { get; set; } = "BTC";
 
     [Reactive] private bool isSelected;
 
-    public string FormattedBalance => Balance.ToString("F4", CultureInfo.InvariantCulture) + " BTC";
+    public string FormattedBalance => Balance.ToString("F4", CultureInfo.InvariantCulture) + " " + CurrencySymbol;
 }
 
 /// <summary>
@@ -68,12 +76,18 @@ public class SharedSignature
 public class SignatureStore
 {
     private int _nextId = 100;
+    private readonly ICurrencyService _currencyService;
 
     /// <summary>All signatures across all projects.</summary>
     public ObservableCollection<SharedSignature> AllSignatures { get; } = new();
 
     /// <summary>Event raised when a signature's status changes (approve/reject).</summary>
     public event Action<SharedSignature>? SignatureStatusChanged;
+
+    public SignatureStore(ICurrencyService currencyService)
+    {
+        _currencyService = currencyService;
+    }
 
     /// <summary>
     /// Add a new signature for an investment.
@@ -95,7 +109,7 @@ public class SignatureStore
             ProjectId = projectId,
             ProjectTitle = projectTitle,
             Amount = amount,
-            Currency = "BTC",
+            Currency = _currencyService.Symbol,
             Date = now.ToString("MMM dd, yyyy"),
             Time = now.ToString("HH:mm"),
             Status = requiresApproval ? SignatureStatus.Waiting.ToLowerString() : SignatureStatus.Approved.ToLowerString(),
@@ -150,12 +164,84 @@ public class SignatureStore
 /// </summary>
 public partial class PrototypeSettings : ReactiveObject
 {
+    private readonly IStore _store;
+    private const string SettingsKey = "prototype_settings.json";
+
     /// <summary>
     /// When true, sections show hardcoded sample data (populated state).
     /// When false, sections show empty states.
     /// Default = true so the app starts populated for demos.
     /// </summary>
     [Reactive] private bool showPopulatedApp = true;
+
+    /// <summary>
+    /// When true (and on a testnet network), enables debug features:
+    /// prepopulate project creation wizard data, bypass some validations, etc.
+    /// Synced to <see cref="INetworkConfiguration.SetDebugMode"/>.
+    /// </summary>
+    [Reactive] private bool isDebugMode;
+
+    /// <summary>
+    /// When true, the app uses the Dark theme; otherwise Light.
+    /// Persisted to disk so the choice survives restarts.
+    /// </summary>
+    [Reactive] private bool isDarkTheme;
+
+    public PrototypeSettings(IStore store)
+    {
+        _store = store;
+
+        // Load persisted values
+        var result = _store.Load<PrototypeSettingsData>(SettingsKey).GetAwaiter().GetResult();
+        if (result.IsSuccess)
+        {
+            isDebugMode = result.Value.IsDebugMode;
+            isDarkTheme = result.Value.IsDarkTheme;
+        }
+
+        // Apply persisted theme immediately
+        if (Application.Current != null)
+        {
+            Application.Current.RequestedThemeVariant = isDarkTheme
+                ? Avalonia.Styling.ThemeVariant.Dark
+                : Avalonia.Styling.ThemeVariant.Light;
+        }
+
+        // Persist on changes
+        this.WhenAnyValue(x => x.IsDebugMode, x => x.IsDarkTheme)
+            .Skip(1)
+            .Subscribe(async _ =>
+            {
+                var saveResult = await _store.Save(SettingsKey, new PrototypeSettingsData
+                {
+                    IsDebugMode = IsDebugMode,
+                    IsDarkTheme = IsDarkTheme,
+                });
+                if (saveResult.IsFailure)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrototypeSettings] Failed to save settings: {saveResult.Error}");
+                }
+            });
+
+        // Apply theme whenever IsDarkTheme changes
+        this.WhenAnyValue(x => x.IsDarkTheme)
+            .Skip(1)
+            .Subscribe(dark =>
+            {
+                if (Application.Current != null)
+                {
+                    Application.Current.RequestedThemeVariant = dark
+                        ? Avalonia.Styling.ThemeVariant.Dark
+                        : Avalonia.Styling.ThemeVariant.Light;
+                }
+            });
+    }
+
+    private class PrototypeSettingsData
+    {
+        public bool IsDebugMode { get; set; }
+        public bool IsDarkTheme { get; set; }
+    }
 }
 
 /// <summary>
@@ -178,8 +264,13 @@ public record NavGroupHeader(string Title) : NavEntry;
 public partial class ShellViewModel : ReactiveObject
 {
     private readonly PortfolioViewModel _portfolioVm;
+    private readonly SignatureStore _signatureStore;
+    private readonly FundsViewModel _fundsVm;
     private readonly Func<string, object?> _viewFactory;
     private readonly IWalletAppService _walletAppService;
+    private readonly IInvestmentAppService _investmentAppService;
+    private readonly ICurrencyService _currencyService;
+    private readonly PrototypeSettings _prototypeSettings;
 
     [Reactive] private NavItem? selectedNavItem;
     [Reactive] private bool isSettingsOpen;
@@ -225,20 +316,38 @@ public partial class ShellViewModel : ReactiveObject
     /// <summary>Display name for the header button. Shows "Select Wallet" if none selected.</summary>
     public string SelectedWalletName => SelectedWallet?.Name ?? "Select Wallet";
 
-    /// <summary>Invested balance display string for the header. Uses PortfolioViewModel total.</summary>
-    public string InvestedBalanceDisplay => _portfolioVm.TotalInvested + " BTC";
+    /// <summary>Currency symbol from ICurrencyService (e.g. "BTC", "TBTC").</summary>
+    public string CurrencySymbol => _currencyService.Symbol;
+
+    /// <summary>Invested balance display string for the header. Updated from SDK GetTotalInvested.</summary>
+    [Reactive] private string investedBalanceDisplay = "0.0000";
 
     /// <summary>Available balance display string for the header. Uses selected wallet balance.</summary>
     public string AvailableBalanceDisplay =>
         SelectedWallet != null
-            ? SelectedWallet.Balance.ToString("F4", CultureInfo.InvariantCulture) + " BTC"
-            : "0.0000 BTC";
+            ? SelectedWallet.Balance.ToString("F4", CultureInfo.InvariantCulture) + " " + _currencyService.Symbol
+            : "0.0000 " + _currencyService.Symbol;
 
-    public ShellViewModel(PortfolioViewModel portfolioVm, Func<string, object?> viewFactory, IWalletAppService walletAppService)
+    /// <summary>
+    /// Profile name shown in the header tag. Null when running the "Default" profile (tag hidden).
+    /// </summary>
+    public string? ProfileName { get; }
+
+    public ShellViewModel(PortfolioViewModel portfolioVm, SignatureStore signatureStore, FundsViewModel fundsVm, Func<string, object?> viewFactory, IWalletAppService walletAppService, IInvestmentAppService investmentAppService, ICurrencyService currencyService, ProfileContext profileContext, PrototypeSettings prototypeSettings)
     {
         _portfolioVm = portfolioVm;
+        _signatureStore = signatureStore;
+        _fundsVm = fundsVm;
         _viewFactory = viewFactory;
         _walletAppService = walletAppService;
+        _investmentAppService = investmentAppService;
+        _currencyService = currencyService;
+        _prototypeSettings = prototypeSettings;
+
+        // Hide profile tag for the default profile, show for all others
+        var profile = profileContext.ProfileName;
+        ProfileName = string.Equals(profile, "Default", StringComparison.OrdinalIgnoreCase) ? null : profile;
+
         NavEntries = new ObservableCollection<NavEntry>
         {
             // Ungrouped
@@ -280,13 +389,15 @@ public partial class ShellViewModel : ReactiveObject
 
         // ── Initialize wallet switcher data from SDK ──
         _ = LoadSwitcherWalletsAsync();
+        _fundsVm.WalletsChanged += OnFundsWalletsChanged;
 
         // When selected wallet changes, update header display properties
         this.WhenAnyValue(x => x.SelectedWallet)
-            .Subscribe(_ =>
+            .Subscribe(wallet =>
             {
                 this.RaisePropertyChanged(nameof(SelectedWalletName));
                 this.RaisePropertyChanged(nameof(AvailableBalanceDisplay));
+                _ = LoadTotalInvestedAsync(wallet);
             });
 
         // When toast message changes, notify HasToast
@@ -394,8 +505,8 @@ public partial class ShellViewModel : ReactiveObject
                 long balanceSats = 0;
                 var balanceInfoResult = await _walletAppService.GetAccountBalanceInfo(meta.Id);
                 if (balanceInfoResult.IsSuccess)
-                    balanceSats = balanceInfoResult.Value.TotalBalance + balanceInfoResult.Value.TotalUnconfirmedBalance + balanceInfoResult.Value.TotalBalanceReserved;
-                var balanceBtc = balanceSats / 100_000_000.0;
+                    balanceSats = balanceInfoResult.Value.TotalBalance + balanceInfoResult.Value.TotalUnconfirmedBalance;
+                var balanceBtc = (double)balanceSats.ToUnitBtc();
 
                 SwitcherWallets.Add(new WalletSwitcherItem
                 {
@@ -403,7 +514,8 @@ public partial class ShellViewModel : ReactiveObject
                     Name = meta.Name,
                     WalletType = "bitcoin",
                     Balance = balanceBtc,
-                    Subtitle = $"Bitcoin • {meta.Name}"
+                    Subtitle = $"Bitcoin • {meta.Name}",
+                    CurrencySymbol = _currencyService.Symbol
                 });
             }
 
@@ -416,6 +528,10 @@ public partial class ShellViewModel : ReactiveObject
                     : null;
                 SelectSwitcherWallet(match ?? SwitcherWallets[0]);
             }
+            else
+            {
+                SelectedWallet = null;
+            }
         }
         catch
         {
@@ -425,6 +541,56 @@ public partial class ShellViewModel : ReactiveObject
         {
             _isLoadingSwitcherWallets = false;
         }
+    }
+
+    /// <summary>
+    /// Load the total invested amount for the given wallet from the SDK.
+    /// Updates the InvestedBalanceDisplay header property.
+    /// </summary>
+    private async Task LoadTotalInvestedAsync(WalletSwitcherItem? wallet)
+    {
+        if (wallet == null)
+        {
+            InvestedBalanceDisplay = "0.0000 " + _currencyService.Symbol;
+            return;
+        }
+
+        try
+        {
+            var result = await _investmentAppService.GetTotalInvested(
+                new Angor.Sdk.Funding.Investor.Operations.GetTotalInvested.GetTotalInvestedRequest(
+                    new WalletId(wallet.Id)));
+
+            if (result.IsSuccess)
+            {
+                var btc = result.Value.TotalInvestedSats.ToUnitBtc();
+                InvestedBalanceDisplay = btc.ToString("F4", CultureInfo.InvariantCulture) + " " + _currencyService.Symbol;
+            }
+        }
+        catch
+        {
+            // SDK call failed — keep existing display
+        }
+    }
+
+    private void OnFundsWalletsChanged()
+    {
+        _ = LoadSwitcherWalletsAsync();
+    }
+
+    public void ResetAfterDataWipe()
+    {
+        _signatureStore.Clear();
+        _portfolioVm.ResetAfterDataWipe();
+        SwitcherWallets.Clear();
+        SelectedWallet = null;
+        InvestedBalanceDisplay = "0.0000 " + _currencyService.Symbol;
+        ToastMessage = null;
+        ModalContent = null;
+        IsModalOpen = false;
+        ClearViewCache();
+        this.RaisePropertyChanged(nameof(AvailableBalanceDisplay));
+        this.RaisePropertyChanged(nameof(SelectedWalletName));
     }
 
     /// <summary>
@@ -483,15 +649,10 @@ public partial class ShellViewModel : ReactiveObject
 
     public bool IsDarkThemeEnabled
     {
-        get => Application.Current?.ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+        get => _prototypeSettings.IsDarkTheme;
         set
         {
-            if (Application.Current != null)
-            {
-                Application.Current.RequestedThemeVariant = value
-                    ? Avalonia.Styling.ThemeVariant.Dark
-                    : Avalonia.Styling.ThemeVariant.Light;
-            }
+            _prototypeSettings.IsDarkTheme = value;
             this.RaisePropertyChanged();
         }
     }

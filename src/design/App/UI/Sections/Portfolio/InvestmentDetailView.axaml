@@ -381,7 +381,8 @@
                             <!-- Vue: .waiting-button-secondary — themed bg/border/fg -->
                             <StackPanel Orientation="Horizontal" Spacing="8"
                                         HorizontalAlignment="Center">
-                                <Button Padding="14,8"
+                                <Button Name="CancelInvestmentStep1Button"
+                                        Padding="14,8"
                                         Background="{DynamicResource WaitingBtnBg}"
                                         BorderBrush="{DynamicResource WaitingBtnBorder}"
                                         BorderThickness="1"
@@ -449,7 +450,7 @@
 
                             <!-- Action buttons: Cancel + Invest -->
                             <StackPanel Spacing="12" HorizontalAlignment="Stretch">
-                                <!-- Invest button — Vue: green gradient bg, white text -->
+                                <!-- Invest/Confirm button — Vue: green gradient bg, white text -->
                                 <Border CornerRadius="8" ClipToBounds="True"
                                         HorizontalAlignment="Stretch">
                                     <Border.Background>
@@ -458,7 +459,8 @@
                                             <GradientStop Color="#3d6448" Offset="1" />
                                         </LinearGradientBrush>
                                     </Border.Background>
-                                    <Button HorizontalAlignment="Stretch"
+                                    <Button Name="ConfirmInvestmentButton"
+                                            HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center"
                                             Padding="20,12"
                                             Background="Transparent"
@@ -472,18 +474,19 @@
                                                        FontWeight="SemiBold"
                                                        Foreground="White"
                                                        VerticalAlignment="Center">
-                                                <Run Text="{Binding ActionVerb, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding TotalInvested, Mode=OneWay}" /><Run Text=" BTC" />
+                                                <Run Text="{Binding ActionVerb, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding TotalInvested, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding CurrencySymbol, Mode=OneWay}" />
                                             </TextBlock>
                                         </StackPanel>
                                     </Button>
                                 </Border>
-                                <!-- Cancel button -->
+                                <!-- Cancel investment button -->
                                 <Border CornerRadius="8"
                                         HorizontalAlignment="Stretch"
                                         Background="Transparent"
                                         BorderBrush="{DynamicResource PreviewCardBorder}"
                                         BorderThickness="1">
-                                    <Button HorizontalAlignment="Stretch"
+                                    <Button Name="CancelInvestmentButton"
+                                            HorizontalAlignment="Stretch"
                                             HorizontalContentAlignment="Center"
                                             Padding="20,12"
                                             Background="Transparent"
@@ -620,7 +623,7 @@
                                            FontSize="24"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource StatsDetailValue}" />
-                                <TextBlock Text="BTC"
+                                <TextBlock Text="{Binding CurrencySymbol}"
                                            FontSize="11"
                                            Foreground="{DynamicResource StatsDetailSubtext}" />
                             </StackPanel>
@@ -643,7 +646,7 @@
                                            FontSize="24"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource StatsDetailValue}" />
-                                <TextBlock Text="BTC"
+                                <TextBlock Text="{Binding CurrencySymbol}"
                                            FontSize="11"
                                            Foreground="{DynamicResource StatsDetailSubtext}" />
                             </StackPanel>
@@ -690,7 +693,7 @@
                                            FontSize="24"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource StatsDetailValue}" />
-                                <TextBlock Text="BTC"
+                                <TextBlock Text="{Binding CurrencySymbol}"
                                            FontSize="11"
                                            Foreground="{DynamicResource StatsDetailSubtext}" />
                             </StackPanel>
@@ -710,7 +713,7 @@
                                        FontWeight="Bold"
                                        Foreground="{DynamicResource ProgressPercentage}"
                                        HorizontalAlignment="Right">
-                                <Run Text="{Binding TotalRaised, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding TargetAmount, Mode=OneWay}" /><Run Text=" BTC" />
+                                <Run Text="{Binding TotalRaised, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding TargetAmount, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding CurrencySymbol, Mode=OneWay}" />
                             </TextBlock>
                         </DockPanel>
                         <!-- Progress bar: Vue .progress-bar-large h:12px, border-radius:6px -->
@@ -1050,7 +1053,7 @@
                                                    Foreground="{DynamicResource StageAmountGreen}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Right">
-                                            <Run Text="{Binding Amount, Mode=OneWay}" /><Run Text=" BTC" />
+                                            <Run Text="{Binding Amount, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding $parent[UserControl].DataContext.CurrencySymbol, Mode=OneWay}" />
                                         </TextBlock>
                                     </Grid>
                                 </Border>

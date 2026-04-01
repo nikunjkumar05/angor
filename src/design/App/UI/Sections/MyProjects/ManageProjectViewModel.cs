@@ -6,11 +6,14 @@ using Angor.Sdk.Common;
 using Angor.Sdk.Funding.Founder;
 using Angor.Sdk.Funding.Founder.Dtos;
 using Angor.Sdk.Funding.Founder.Operations;
+using Angor.Sdk.Funding.Projects;
 using Angor.Sdk.Funding.Services;
 using Angor.Sdk.Funding.Shared;
 using Nostr.Client.Utils;
+using Microsoft.Extensions.Logging;
 using ReactiveUI;
 using ReactiveUI.SourceGenerators;
+using App.UI.Shared;
 
 namespace App.UI.Sections.MyProjects;
 
@@ -102,7 +105,15 @@ public class ManageStageViewModel
 public partial class ManageProjectViewModel : ReactiveObject
 {
     private readonly IFounderAppService _founderAppService;
+    private readonly IProjectAppService _projectAppService;
     private readonly IProjectService _projectService;
+    private readonly ICurrencyService _currencyService;
+    private readonly ILogger<ManageProjectViewModel> _logger;
+
+    public event Action<string>? ToastRequested;
+
+    /// <summary>Currency symbol from ICurrencyService (e.g. "BTC", "TBTC").</summary>
+    public string CurrencySymbol => _currencyService.Symbol;
 
     /// <summary>The project being managed (from MyProjectsView).</summary>
     public MyProjectItemViewModel Project { get; }
@@ -170,10 +181,16 @@ public partial class ManageProjectViewModel : ReactiveObject
     public ManageProjectViewModel(
         MyProjectItemViewModel project,
         IFounderAppService founderAppService,
-        IProjectService projectService)
+        IProjectAppService projectAppService,
+        IProjectService projectService,
+        ICurrencyService currencyService,
+        ILogger<ManageProjectViewModel> logger)
     {
         _founderAppService = founderAppService;
+        _projectAppService = projectAppService;
         _projectService = projectService;
+        _currencyService = currencyService;
+        _logger = logger;
         Project = project;
         WalletPassword = "";
         ClaimedAmount = "0";
@@ -188,6 +205,7 @@ public partial class ManageProjectViewModel : ReactiveObject
         // Load claimable transactions and project keys from SDK
         _ = LoadClaimableTransactionsAsync();
         _ = LoadProjectKeysAsync();
+        _ = LoadProjectStatisticsAsync();
     }
 
     /// <summary>
@@ -211,9 +229,47 @@ public partial class ManageProjectViewModel : ReactiveObject
                 NostrNpub = NostrConverter.ToNpub(project.NostrPubKey) ?? project.NostrPubKey;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Key loading failed — properties remain empty
+            _logger.LogError(ex, "Failed to load project keys for project {ProjectId}", Project.ProjectIdentifier);
+        }
+    }
+
+    /// <summary>
+    /// Load project statistics from the SDK (total invested, investor count, etc.).
+    /// Provides more accurate header stats than manual computation from claimable transactions.
+    /// </summary>
+    private async Task LoadProjectStatisticsAsync()
+    {
+        if (string.IsNullOrEmpty(Project.ProjectIdentifier)) return;
+
+        try
+        {
+            var projectId = new ProjectId(Project.ProjectIdentifier);
+            var statsResult = await _projectAppService.GetProjectStatistics(projectId);
+            if (statsResult.IsFailure) return;
+
+            var stats = statsResult.Value;
+
+            TotalInvestment = stats.TotalInvested.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture);
+            AvailableBalance = stats.AvailableBalance.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture);
+            Withdrawable = stats.WithdrawableAmount.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture);
+            TotalStages = stats.TotalStages;
+            TransactionTotal = stats.TotalTransactions;
+            TransactionSpent = stats.SpentTransactions;
+            TransactionAvailable = stats.AvailableTransactions;
+
+            this.RaisePropertyChanged(nameof(TotalInvestment));
+            this.RaisePropertyChanged(nameof(AvailableBalance));
+            this.RaisePropertyChanged(nameof(Withdrawable));
+            this.RaisePropertyChanged(nameof(TotalStages));
+            this.RaisePropertyChanged(nameof(TransactionTotal));
+            this.RaisePropertyChanged(nameof(TransactionSpent));
+            this.RaisePropertyChanged(nameof(TransactionAvailable));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load project statistics for project {ProjectId}", Project.ProjectIdentifier);
         }
     }
 
@@ -247,20 +303,20 @@ public partial class ManageProjectViewModel : ReactiveObject
             foreach (var group in stageGroups)
             {
                 var stageTransactions = group.ToList();
-                var stageAmount = stageTransactions.Sum(t => t.Amount.Sats / 100_000_000.0);
+                var stageAmount = (double)stageTransactions.Sum(t => t.Amount.Sats.ToUnitBtc());
                 totalAmount += stageAmount;
 
                 var claimable = stageTransactions.Where(t => t.ClaimStatus == Angor.Sdk.Funding.Founder.Dtos.ClaimStatus.Unspent).ToList();
                 var spent = stageTransactions.Where(t => t.ClaimStatus == Angor.Sdk.Funding.Founder.Dtos.ClaimStatus.SpentByFounder).ToList();
 
-                availableAmount += claimable.Sum(t => t.Amount.Sats / 100_000_000.0);
+                availableAmount += (double)claimable.Sum(t => t.Amount.Sats.ToUnitBtc());
                 availableCount += claimable.Count;
                 spentCount += spent.Count;
 
                 var stage = new ManageStageViewModel
                 {
                     Number = group.Key,
-                    AmountLeft = claimable.Sum(t => t.Amount.Sats / 100_000_000.0).ToString("F8", CultureInfo.InvariantCulture),
+                    AmountLeft = claimable.Sum(t => t.Amount.Sats.ToUnitBtc()).ToString("F8", CultureInfo.InvariantCulture),
                     UtxoCount = stageTransactions.Count,
                     CompletionDate = stageTransactions.FirstOrDefault()?.DynamicReleaseDate?.ToString("dd MMMM yyyy") ?? "",
                     Available = claimable.Count > 0,
@@ -274,7 +330,7 @@ public partial class ManageProjectViewModel : ReactiveObject
                     stage.AvailableTransactions.Add(new UtxoTransactionViewModel
                     {
                         TxId = tx.InvestorAddress,
-                        Amount = (tx.Amount.Sats / 100_000_000.0).ToString("F8", CultureInfo.InvariantCulture),
+                        Amount = tx.Amount.Sats.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture),
                         IsSpent = false
                     });
                 }
@@ -284,7 +340,7 @@ public partial class ManageProjectViewModel : ReactiveObject
                     stage.SpentTransactions.Add(new UtxoTransactionViewModel
                     {
                         TxId = tx.InvestorAddress,
-                        Amount = (tx.Amount.Sats / 100_000_000.0).ToString("F8", CultureInfo.InvariantCulture),
+                        Amount = tx.Amount.Sats.ToUnitBtc().ToString("F8", CultureInfo.InvariantCulture),
                         IsSpent = true
                     });
                 }
@@ -306,9 +362,9 @@ public partial class ManageProjectViewModel : ReactiveObject
             this.RaisePropertyChanged(nameof(TransactionSpent));
             this.RaisePropertyChanged(nameof(TransactionAvailable));
         }
-        catch
+        catch (Exception ex)
         {
-            // SDK call failed
+            _logger.LogError(ex, "Failed to load claimable transactions for project {ProjectId}", Project.ProjectIdentifier);
         }
     }
 
@@ -316,15 +372,18 @@ public partial class ManageProjectViewModel : ReactiveObject
     /// Claim (spend) stage funds for selected transactions.
     /// Builds a spending transaction and broadcasts it via the SDK.
     /// </summary>
-    public async Task<bool> ClaimStageFundsAsync(int stageIndex, IEnumerable<UtxoTransactionViewModel> selectedTransactions, long feeRateSatsPerVByte = 20)
+    public async Task<bool> ClaimStageFundsAsync(int stageNumber, IEnumerable<UtxoTransactionViewModel> selectedTransactions, long feeRateSatsPerVByte = 20)
     {
         if (string.IsNullOrEmpty(Project.ProjectIdentifier) ||
             string.IsNullOrEmpty(Project.OwnerWalletId)) return false;
+
+        if (stageNumber <= 0) return false;
 
         try
         {
             var walletId = new WalletId(Project.OwnerWalletId);
             var projectId = new ProjectId(Project.ProjectIdentifier);
+            var stageIndex = stageNumber - 1;
 
             var toSpend = selectedTransactions.Select(t => new SpendTransactionDto
             {
@@ -337,7 +396,13 @@ public partial class ManageProjectViewModel : ReactiveObject
             var spendResult = await _founderAppService.SpendStageFunds(
                 new SpendStageFunds.SpendStageFundsRequest(walletId, projectId, fee, toSpend));
 
-            if (spendResult.IsFailure) return false;
+            if (spendResult.IsFailure)
+            {
+                _logger.LogError("SpendStageFunds failed for project {ProjectId}: {Error}", Project.ProjectIdentifier,
+                    spendResult.Error);
+                ToastRequested?.Invoke("Failed to claim stage funds. Please try again.");
+                return false;
+            }
 
             var publishResult = await _founderAppService.SubmitTransactionFromDraft(
                 new PublishFounderTransaction.PublishFounderTransactionRequest(spendResult.Value.TransactionDraft));
@@ -347,8 +412,17 @@ public partial class ManageProjectViewModel : ReactiveObject
                 await LoadClaimableTransactionsAsync();
                 return true;
             }
+
+            _logger.LogError("SubmitTransactionFromDraft failed while claiming stage funds for project {ProjectId}: {Error}",
+                Project.ProjectIdentifier,
+                publishResult.Error);
+            ToastRequested?.Invoke("Failed to claim stage funds. Please try again.");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ClaimStageFundsAsync threw exception for project {ProjectId}", Project.ProjectIdentifier);
+            ToastRequested?.Invoke("Failed to claim stage funds. Please try again.");
+        }
 
         return false;
     }
@@ -370,14 +444,27 @@ public partial class ManageProjectViewModel : ReactiveObject
             var releasableResult = await _founderAppService.GetReleasableTransactions(
                 new GetReleasableTransactions.GetReleasableTransactionsRequest(walletId, projectId));
 
-            if (releasableResult.IsFailure) return false;
+            if (releasableResult.IsFailure)
+            {
+                _logger.LogError("GetReleasableTransactions failed for project {ProjectId}: {Error}",
+                    Project.ProjectIdentifier,
+                    releasableResult.Error);
+                ToastRequested?.Invoke("Failed to release funds to investors. Please try again.");
+                return false;
+            }
 
             var eventIds = releasableResult.Value.Transactions
                 .Where(t => t.Released == null)
                 .Select(t => t.InvestmentEventId)
                 .ToList();
 
-            if (eventIds.Count == 0) return false;
+            if (eventIds.Count == 0)
+            {
+                _logger.LogWarning("ReleaseFundsToInvestorsAsync found no releasable transactions for project {ProjectId}",
+                    Project.ProjectIdentifier);
+                ToastRequested?.Invoke("No releasable investor funds were found.");
+                return false;
+            }
 
             var releaseResult = await _founderAppService.ReleaseFunds(
                 new ReleaseFunds.ReleaseFundsRequest(walletId, projectId, eventIds));
@@ -388,8 +475,17 @@ public partial class ManageProjectViewModel : ReactiveObject
                 await LoadClaimableTransactionsAsync();
                 return true;
             }
+
+            _logger.LogError("ReleaseFunds failed for project {ProjectId}: {Error}", Project.ProjectIdentifier,
+                releaseResult.Error);
+            ToastRequested?.Invoke("Failed to release funds to investors. Please try again.");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ReleaseFundsToInvestorsAsync threw exception for project {ProjectId}",
+                Project.ProjectIdentifier);
+            ToastRequested?.Invoke("Failed to release funds to investors. Please try again.");
+        }
 
         return false;
     }
